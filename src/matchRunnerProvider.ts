@@ -77,6 +77,8 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             const status = await getMatchStatus();
             const active = status.state === "playing" || status.state === "ready" || status.state === "set";
             if (active && !this.isRunning) {
+                this.isRunning = true;
+                this.postMessage({ type: "matchActive" });
                 await this.recoverEventTracking();
             }
         } catch { /* status unreachable */ }
@@ -938,6 +940,10 @@ case"matchStarted":
   document.getElementById("rn").textContent=m.redName||"Red";
   document.getElementById("bn").textContent=m.blueName||"Blue";
   renderEvents([]);
+  break;
+case"matchActive":
+  panelState="running";
+  d("b1",1);d("b2",1);d("b3",0);
   break;
 case"matchEnded":
   panelState="finished";
