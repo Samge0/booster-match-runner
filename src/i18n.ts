@@ -48,6 +48,7 @@ const MESSAGES: Record<Lang, Record<string, string>> = {
         confirmDelete: "Delete this agent? This cannot be undone.",
         manageAgents: "Manage",
         manageAgentsHint: "Select an agent to delete (Esc to cancel)",
+        settings: "Settings",
     },
     zh: {
         score: "比分",
@@ -82,6 +83,7 @@ const MESSAGES: Record<Lang, Record<string, string>> = {
         confirmDelete: "确认删除该 Agent？此操作不可撤销。",
         manageAgents: "管理",
         manageAgentsHint: "选择要删除的 Agent（按 Esc 取消）",
+        settings: "设置",
     },
 };
 

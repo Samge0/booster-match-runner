@@ -167,6 +167,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             case "manageAgents": await this.manageAgents(); break;
             case "saveLog": await this.saveLog(); break;
             case "showRecords": await this.showRecords(); break;
+            case "openSettings": await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:samge.booster-match-runner"); break;
         }
     }
 
@@ -845,7 +846,7 @@ select{width:100%;padding:5px 8px;background:var(--vscode-dropdown-background);c
 .spin{display:inline-block;width:13px;height:13px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px}
 @keyframes sp{to{transform:rotate(360deg)}}
 </style></head><body>
-<div style="display:flex;justify-content:flex-end;margin-bottom:4px"><button id="langBtn" class="btn s" style="width:auto;padding:3px 12px;font-size:11px" onclick="toggleLang()">中</button></div>
+<div style="display:flex;justify-content:flex-end;gap:4px;margin-bottom:4px"><button id="langBtn" class="btn s" style="width:auto;padding:3px 12px;font-size:11px" onclick="toggleLang()">中</button><button id="settingsBtn" class="btn s" style="width:auto;padding:3px 10px;font-size:12px" onclick="s('openSettings')" title="Settings">&#9881;</button></div>
 <div class="section"><div class="label" id="lblScore">Score</div>
 <div class="sd"><div class="st r"><div class="n" id="rn">Red</div><div class="s" id="rs">0</div></div>
 <div class="vs">VS</div>
@@ -919,6 +920,7 @@ function applyLang(){
   setText("optBlue",T("loading"));
   document.getElementById("btnRecords").title=T("records");
   document.getElementById("langBtn").textContent=I18N.lang==="en"?"中":"EN";
+  var sb=document.getElementById("settingsBtn");if(sb)sb.title=T("settings");
   rs(lastStatus);
   renderEvents(lastEvents);
 }
@@ -970,7 +972,7 @@ function rs(st){
 if(!st){document.getElementById("tEnd").textContent=T("containerUnreachable");return;}
 var active=st.state==="playing"||st.state==="ready"||st.state==="set";
 if(panelState==="idle"){panelState=st.isFinished?"finished":(active?"running":"idle");}
-if(st.isFinished){panelState="finished";}
+if(st.isFinished){panelState="finished";d("b1",0);d("b2",0);d("b3",1);}
 var updateScore=panelState!=="finished"||st.isFinished;
 if(updateScore){setScore(st.score.home,st.score.away);}
 document.getElementById("tStart").textContent=st.startedAtWallTime?fmtTime(st.startedAtWallTime,true):(active?T("preparing"):"—");
