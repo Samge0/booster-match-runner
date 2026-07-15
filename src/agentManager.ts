@@ -28,7 +28,7 @@ export async function discoverContainerAgents(): Promise<AgentInfo[]> {
             if (!id) continue;
             agents.push({
                 id,
-                name: id,
+                name: await readContainerAgentName(id),
                 source: "container",
                 path: `${CONTAINER_AGENT_ROOT}/${id}`,
             });
@@ -39,11 +39,33 @@ export async function discoverContainerAgents(): Promise<AgentInfo[]> {
     }
 }
 
+/** Read an agent's display name from its agent.json inside the container.
+ *  Falls back to the id (directory name) if agent.json is unreadable. */
+async function readContainerAgentName(id: string): Promise<string> {
+    try {
+        const out = await dockerExec(`cat ${CONTAINER_AGENT_ROOT}/${id}/agent.json 2>/dev/null`, 5000);
+        const parsed = JSON.parse(out.trim());
+        return parsed.name?.en || parsed.name || id;
+    } catch {
+        return id;
+    }
+}
+
+/** True if an agent with this id is already deployed in the container. */
+export async function containerAgentExists(id: string): Promise<boolean> {
+    try {
+        const s = await dockerExec(`test -d ${CONTAINER_AGENT_ROOT}/${id} && echo yes`, 5000);
+        return s.trim() === "yes";
+    } catch {
+        return false;
+    }
+}
+
 /** Read id/name/version from a .agent (ZIP) file's agent.json. The id MUST come
  *  from agent.json — it is the extract directory name that deployAgentFile uses,
  *  so the UI id has to match or run.py cannot find the agent. Falls back to the
  *  filename (minus extension) only if agent.json is unreadable. */
-function readAgentFileMeta(agentFile: string): { id: string; name: string; version: string } {
+export function readAgentFileMeta(agentFile: string): { id: string; name: string; version: string } {
     const fallbackId = path.basename(agentFile, ".agent");
     let id = fallbackId;
     let name = fallbackId;

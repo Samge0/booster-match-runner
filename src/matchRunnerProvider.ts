@@ -5,7 +5,7 @@
  */
 
 import * as vscode from "vscode";
-import { getAllAgents } from "./agentManager";
+import { getAllAgents, readAgentFileMeta, containerAgentExists } from "./agentManager";
 import { getMatchStatus, startMatch as apiStartMatch, endMatch as apiEndMatch } from "./matchRunner";
 import { isContainerRunning, dockerExec, cloneAgent, deployAgentFile, gameControlApi, dockerExecDetached, startSimContainer } from "./docker";
 import { AgentInfo, MatchStatus } from "./types";
@@ -290,8 +290,53 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             defaultUri: projectsDir ? vscode.Uri.file(projectsDir) : undefined,
         });
         if (!uri || uri.length === 0) { return; }
+        const filePath = uri[0].fsPath;
         try {
-            const id = await deployAgentFile(uri[0].fsPath);
+            // On id collision, ask the user whether to deploy under a custom
+            // id/name or overwrite the existing one. No collision (or choosing
+            // overwrite / leaving the original id) falls through to the default
+            // overwrite behavior.
+            const meta = readAgentFileMeta(filePath);
+            let idOverride: string | undefined;
+            let nameOverride: string | undefined;
+            if (await containerAgentExists(meta.id)) {
+                const choice = await vscode.window.showWarningMessage(
+                    `Agent id '${meta.id}' already exists in the container.`,
+                    "Use new id/name",
+                    "Overwrite"
+                );
+                if (choice === undefined) { return; }
+                if (choice === "Use new id/name") {
+                    const newId = await vscode.window.showInputBox({
+                        prompt: "Custom agent id (directory name). Leave as-is to overwrite.",
+                        value: meta.id,
+                        validateInput: (v) => {
+                            const s = v.trim();
+                            if (!s) { return undefined; } // empty = overwrite
+                            // ROS2 node names are derived from the id (dots -> underscores)
+                            // and only allow alphanumerics + '_'. A '-' in the id produces
+                            // an invalid node name and the agent aborts at instantiate.
+                            return /^[a-zA-Z][a-zA-Z0-9.]*$/.test(s)
+                                ? undefined
+                                : "Only letters, digits and dots are allowed (no '-', '_', spaces). Must start with a letter.";
+                        },
+                    });
+                    if (newId === undefined) { return; }
+                    const newName = await vscode.window.showInputBox({
+                        prompt: "Custom display name for this agent.",
+                        value: meta.name,
+                    });
+                    if (newName === undefined) { return; }
+                    // Empty or unchanged id means overwrite → no override.
+                    if (newId.trim() && newId.trim() !== meta.id) {
+                        idOverride = newId.trim();
+                    }
+                    if (newName.trim() && newName.trim() !== meta.name) {
+                        nameOverride = newName.trim();
+                    }
+                }
+            }
+            const id = await deployAgentFile(filePath, idOverride, nameOverride);
             vscode.window.showInformationMessage(`Deployed: ${id}`);
             await this.refresh();
         } catch (err: any) { vscode.window.showErrorMessage("Deploy failed: " + err.message); }
