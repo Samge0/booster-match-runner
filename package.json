@@ -1,0 +1,134 @@
+{
+  "name": "booster-match-runner",
+  "displayName": "Booster Match Runner",
+  "description": "Unofficial community panel to run 3v3 soccer matches between Booster agents (requires Booster Studio + the virtual-robot sim container).",
+  "version": "0.1.0",
+  "publisher": "samge",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "keywords": [
+    "booster",
+    "booster-studio",
+    "robot",
+    "soccer",
+    "3v3",
+    "simulation",
+    "robocup"
+  ],
+  "engines": {
+    "vscode": "^1.80.0",
+    "boosterStudio": "1.9.10"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Samge0/booster-match-runner"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "booster-match",
+          "title": "Match Runner",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "booster-match": [
+        {
+          "type": "webview",
+          "id": "boosterMatch.mainView",
+          "name": "Match Runner",
+          "icon": "media/icon.svg",
+          "contextualTitle": "Match Runner"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "boosterMatch.refresh",
+        "title": "Match Runner: Refresh Agents"
+      },
+      {
+        "command": "boosterMatch.startMatch",
+        "title": "Match Runner: Start Match"
+      },
+      {
+        "command": "boosterMatch.endMatch",
+        "title": "Match Runner: End Match"
+      },
+      {
+        "command": "boosterMatch.startHeadless",
+        "title": "Match Runner: Start Headless Match"
+      },
+      {
+        "command": "boosterMatch.showStatus",
+        "title": "Match Runner: Show Match Status"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "boosterMatch.refresh",
+          "when": "view == boosterMatch.mainView",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Booster Match Runner",
+      "properties": {
+        "boosterMatch.containerName": {
+          "type": "string",
+          "default": "",
+          "description": "Docker container name running the simulation. Must be configured by the user."
+        },
+        "boosterMatch.gameControlPort": {
+          "type": "number",
+          "default": 38383,
+          "description": "Game control HTTP API port inside the container"
+        },
+        "boosterMatch.defaultOpponent": {
+          "type": "string",
+          "default": "com.booster.default3v3ai",
+          "description": "Default opponent agent ID"
+        },
+        "boosterMatch.projectsDir": {
+          "type": "string",
+          "default": "",
+          "description": "Directory containing Booster Studio agent projects. Leave empty if unused."
+        },
+        "boosterMatch.hostAgentRoots": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Extra host directories to scan for .agent files (in addition to projectsDir). Empty by default; configure as needed."
+        },
+        "boosterMatch.simImage": {
+          "type": "string",
+          "default": "booster-robotics-registry.cn-beijing.cr.aliyuncs.com/virtual-robot/virtual-robot:0.6.5-beta",
+          "description": "Docker image used to locate and start the sim container"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.80.0",
+    "@vscode/vsce": "^3.9.2",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "adm-zip": "^0.6.0"
+  }
+}

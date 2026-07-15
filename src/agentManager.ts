@@ -1,0 +1,113 @@
+/**
+ * Agent discovery: find agents in the container and on the host.
+ */
+
+import * as path from "path";
+import * as fs from "fs";
+import * as vscode from "vscode";
+import { dockerExec } from "./docker";
+import { AgentInfo } from "./types";
+import AdmZip from "adm-zip";
+
+const CONTAINER_AGENT_ROOT = "/opt/booster/booster_agent_data/data/agents/extract";
+
+/** Agent ids that are known-invalid placeholders and hidden from the picker. */
+const BLOCKED_AGENT_IDS = new Set<string>([""]);
+
+/** Discover all agents available in the container's extract directory. */
+export async function discoverContainerAgents(): Promise<AgentInfo[]> {
+    try {
+        const stdout = await dockerExec(
+            `ls ${CONTAINER_AGENT_ROOT} 2>/dev/null`,
+            5000
+        );
+        const dirs = stdout.trim().split("\n").filter(Boolean);
+        const agents: AgentInfo[] = [];
+        for (const dir of dirs) {
+            const id = dir.trim();
+            if (!id) continue;
+            agents.push({
+                id,
+                name: id,
+                source: "container",
+                path: `${CONTAINER_AGENT_ROOT}/${id}`,
+            });
+        }
+        return agents;
+    } catch {
+        return [];
+    }
+}
+
+/** Read id/name/version from a .agent (ZIP) file's agent.json. The id MUST come
+ *  from agent.json — it is the extract directory name that deployAgentFile uses,
+ *  so the UI id has to match or run.py cannot find the agent. Falls back to the
+ *  filename (minus extension) only if agent.json is unreadable. */
+function readAgentFileMeta(agentFile: string): { id: string; name: string; version: string } {
+    const fallbackId = path.basename(agentFile, ".agent");
+    let id = fallbackId;
+    let name = fallbackId;
+    let version = "";
+    try {
+        const zip = new AdmZip(agentFile);
+        const entry = zip.getEntry("agent.json");
+        if (entry) {
+            const parsed = JSON.parse(zip.readAsText(entry));
+            id = parsed.id || id;
+            name = parsed.name?.en || parsed.id || name;
+            version = parsed.version || "";
+        }
+    } catch {
+        // fall back to filename
+    }
+    return { id, name, version };
+}
+
+/** Build an AgentInfo from a host .agent file. */
+function makeAgentFromFile(agentFile: string): AgentInfo {
+    const meta = readAgentFileMeta(agentFile);
+    return { id: meta.id, name: meta.name, source: "file", path: agentFile, version: meta.version };
+}
+
+/** Discover .agent files under projectsDir and any extra hostAgentRoots.
+ *  Scans one level into each root (project folders) plus .agent files sitting
+ *  directly in the root. Roots are user-configured; empty by default. */
+export async function discoverHostAgentFiles(): Promise<AgentInfo[]> {
+    const config = vscode.workspace.getConfiguration("boosterMatch");
+    const roots = [
+        config.get<string>("projectsDir", ""),
+        ...config.get<string[]>("hostAgentRoots", []),
+    ].filter(Boolean);
+
+    const agents: AgentInfo[] = [];
+    for (const root of roots) {
+        let entries: string[];
+        try { entries = fs.readdirSync(root); } catch { continue; }
+        for (const entry of entries) {
+            const full = path.join(root, entry);
+            let isDir = false;
+            try { isDir = fs.statSync(full).isDirectory(); } catch { continue; }
+            if (isDir) {
+                let subEntries: string[];
+                try { subEntries = fs.readdirSync(full); } catch { continue; }
+                for (const sub of subEntries) {
+                    if (sub.endsWith(".agent")) {
+                        agents.push(makeAgentFromFile(path.join(full, sub)));
+                    }
+                }
+            } else if (entry.endsWith(".agent")) {
+                agents.push(makeAgentFromFile(full));
+            }
+        }
+    }
+    return agents;
+}
+
+/** Get all available agents (container + host), hiding known-invalid placeholders. */
+export async function getAllAgents(): Promise<AgentInfo[]> {
+    const [container, host] = await Promise.all([
+        discoverContainerAgents(),
+        discoverHostAgentFiles(),
+    ]);
+    return [...container, ...host].filter((a) => !BLOCKED_AGENT_IDS.has(a.id));
+}
