@@ -11,8 +11,11 @@ import AdmZip from "adm-zip";
 
 const CONTAINER_AGENT_ROOT = "/opt/booster/booster_agent_data/data/agents/extract";
 
-/** Agent ids that are known-invalid placeholders and hidden from the picker. */
-const BLOCKED_AGENT_IDS = new Set<string>([""]);
+/** Agent ids hidden from the picker: empty + system placeholders not meant to
+ *  be picked as a team. com.boosterobotics.default is a built-in demo agent
+ *  (loads fine, Inactive=>Active, but doesn't play soccer — picking it leaves
+ *  robots standing still). The referee is a separate process, not an agent. */
+const BLOCKED_AGENT_IDS = new Set<string>(["com.boosterobotics.default"]);
 
 /** Discover all agents available in the container's extract directory. */
 export async function discoverContainerAgents(): Promise<AgentInfo[]> {
