@@ -133,6 +133,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             case "openSim": await this.openSimulator(); break;
             case "uploadAgent": await this.uploadAgentFile(); break;
             case "startContainer": await this.startContainer(); break;
+            case "manageAgents": await this.manageAgents(); break;
             case "saveLog": await this.saveLog(); break;
             case "showRecords": await this.showRecords(); break;
         }
@@ -142,7 +143,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
     async startContainer() {
         this.output.show();
         this.output.appendLine("[MatchRunner] Starting container...");
-        this.postMessage({ type: "status_text", text: "Starting container..." });
+        this.postMessage({ type: "containerStarting", starting: true });
         try {
             const name = await startSimContainer();
             if (!name) {
@@ -154,7 +155,56 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             await this.refresh();
         } catch (err: any) {
             vscode.window.showErrorMessage("Failed to start: " + err.message);
+        } finally {
+            this.postMessage({ type: "containerStarting", starting: false });
         }
+    }
+
+    /** Delete a single agent from the picker. Container agents are removed from
+     *  the extract dir; local .agent files are deleted from disk. Confirms first
+     *  since both are irreversible. */
+    async deleteAgent(agentId: string) {
+        const agent = this.agents.find((a) => a.id === agentId);
+        if (!agent) { return; }
+        const where = agent.source === "container" ? `container:${agent.path}` : agent.path;
+        const choice = await vscode.window.showWarningMessage(
+            `${t("confirmDelete")}\n${where}`,
+            "Delete", "Cancel"
+        );
+        if (choice !== "Delete") { return; }
+        try {
+            if (agent.source === "container") {
+                await dockerExec(`rm -rf "${agent.path}"`, 10000);
+            } else if (agent.path) {
+                await fs.promises.rm(agent.path, { recursive: true, force: true });
+            }
+            if (this.selection.red === agentId) { this.selection.red = ""; }
+            if (this.selection.blue === agentId) { this.selection.blue = ""; }
+            await this.refresh();
+        } catch (err: any) {
+            vscode.window.showErrorMessage("Delete failed: " + err.message);
+        }
+    }
+
+    /** Open a quick-pick of all agents (like the match-records picker); selecting
+     *  one prompts deletion. Keeps the panel compact — the list is not shown by
+     *  default. */
+    async manageAgents() {
+        if (!this.agents.length) {
+            vscode.window.showInformationMessage(t("noAgents"));
+            return;
+        }
+        const items = this.agents.map((a) => ({
+            label: a.name,
+            description: `(${a.source})`,
+            detail: a.id,
+            agentId: a.id,
+        }));
+        const pick = await vscode.window.showQuickPick(items, {
+            placeHolder: t("manageAgentsHint"),
+        });
+        if (!pick) { return; }
+        await this.deleteAgent(pick.agentId);
     }
 
     /** Check no match is in progress. */
@@ -753,10 +803,15 @@ select{width:100%;padding:5px 8px;background:var(--vscode-dropdown-background);c
 .btn:hover{background:var(--vscode-button-hoverBackground)}
 .btn.s{background:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground)}
 .btn:disabled{opacity:.4;cursor:default}
+.btn.icb{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:6px 2px}
+.btn.icb .ic{font-size:16px;line-height:1}
+.btn.icb .lb{font-size:10px;line-height:1.2;white-space:nowrap}
 .sb{font-size:10px;opacity:.5;text-align:center;padding:4px}.sb.run{color:#2ecc71;opacity:.8}
 .tm{font-size:11px;opacity:.75;line-height:1.6}.tm .lab{display:inline-block;width:3em;opacity:.55}
 .ev{max-height:240px;overflow-y:auto;margin-top:4px}.ev .row{display:flex;align-items:center;gap:6px;padding:3px 0;font-size:11px;border-bottom:1px solid rgba(128,128,128,.12)}.ev .row .ic{width:18px;text-align:center;flex-shrink:0}.ev .row .t{opacity:.55;flex-shrink:0}.ev .row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ev .row .nm.r{color:#e74c3c}.ev .row .nm.b{color:#3498db}.ev .row .sc{opacity:.5;flex-shrink:0}.ev .empty{opacity:.4;font-size:11px;padding:10px 0;text-align:center}
 .cw{background:rgba(231,76,60,.1);border:1px solid rgba(231,76,60,.3);border-radius:4px;padding:10px;text-align:center;font-size:11px;margin-bottom:8px}
+.spin{display:inline-block;width:13px;height:13px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
 </style></head><body>
 <div style="display:flex;justify-content:flex-end;margin-bottom:4px"><button id="langBtn" class="btn s" style="width:auto;padding:3px 12px;font-size:11px" onclick="toggleLang()">中</button></div>
 <div class="section"><div class="label" id="lblScore">Score</div>
@@ -766,7 +821,7 @@ select{width:100%;padding:5px 8px;background:var(--vscode-dropdown-background);c
 <div class="tm"><span class="lab" id="lblStart">Start</span><span id="tStart">—</span></div>
 <div class="tm"><span class="lab" id="lblEnd">End</span><span id="tEnd">—</span></div>
 </div>
-<div id="cwarn" class="cw" style="display:none"><span id="cwTxt">Container not running.</span><br><button class="btn" style="margin-top:6px" id="btnStartContainer" onclick="s('startContainer')">Start Container</button></div>
+<div id="cwarn" class="cw" style="display:none"><span id="cwTxt">Container not running.</span><br><button class="btn" style="margin-top:6px" id="btnStartContainer" onclick="s('startContainer')">Start Container</button><div id="cwLoading" style="display:none;margin-top:8px"><span class="spin"></span> <span id="cwLoadingTxt">Starting container...</span></div></div>
 <div class="section" id="ts"><div class="label" id="lblTeams">Teams</div>
 <div class="tr"><div class="dot r"></div><select id="rsel" onchange="sel('red',this.value)"><option value="" id="optRed">Loading...</option></select></div>
 <div class="tr"><div class="dot b"></div><select id="bsel" onchange="sel('blue',this.value)"><option value="" id="optBlue">Loading...</option></select></div></div>
@@ -780,16 +835,17 @@ select{width:100%;padding:5px 8px;background:var(--vscode-dropdown-background);c
 <button class="btn s" style="flex:1" id="b3" onclick="s('endMatch')" disabled>&#9940; <span id="t_b3">End</span></button></div></div>
 <div class="section"><div class="label" id="lblActions">Actions</div>
 <div style="display:flex;gap:4px">
-<button class="btn s" style="flex:1" onclick="s('refresh')">&#8635; <span id="t_refresh">Refresh</span></button>
-<button class="btn s" style="flex:1" onclick="s('uploadAgent')">&#8682; <span id="t_upload">Upload</span></button>
-<button class="btn s" style="flex:1" onclick="s('saveLog')">&#128190; <span id="t_save">Save</span></button>
+<button class="btn s icb" style="flex:1" onclick="s('refresh')" title="Refresh Agents"><span class="ic">&#8635;</span><span class="lb" id="t_refresh">Refresh</span></button>
+<button class="btn s icb" style="flex:1" onclick="s('uploadAgent')" title="Upload Agent"><span class="ic">&#8682;</span><span class="lb" id="t_upload">Upload</span></button>
+<button class="btn s icb" style="flex:1" onclick="s('saveLog')" title="Save Log"><span class="ic">&#128190;</span><span class="lb" id="t_save">Save</span></button>
+<button class="btn s icb" style="flex:1" id="btnManageAgents" onclick="s('manageAgents')" title="Manage agents"><span class="ic">&#128203;</span><span class="lb" id="t_manageAgents">Manage</span></button>
 </div></div>
 <div class="section"><div class="label" id="lblKeyEvents">Key Events</div><div class="ev" id="evList"><div class="empty">No events yet</div></div></div>
 <script>
 const v=acquireVsCodeApi();
 var panelState="idle";
 var lastStatus=null,lastEvents=[];
-var I18N={lang:"en",msg:{score:"Score",teams:"Teams",actions:"Actions",keyEvents:"Key Events",start:"Start",end:"End",count:"Count",records:"Match records",noEvents:"No events yet",starting:"Starting…",containerUnreachable:"Container unreachable",containerNotRunning:"Container not running.",startContainer:"Start Container",startMatchUi:"Start Match + UI",startHeadless:"Start Headless",ui:"UI",refresh:"Refresh",upload:"Upload",save:"Save",loading:"Loading...",noAgents:"No agents",timeout:"Match length(s)",lead:"Lead goals",preparing:"Preparing…",red:"Red",blue:"Blue"},states:{playing:"Playing",ready:"Ready",set:"Set",finished:"Finished"},events:{}};
+var I18N={lang:"en",msg:{score:"Score",teams:"Teams",actions:"Actions",keyEvents:"Key Events",start:"Start",end:"End",count:"Count",records:"Match records",noEvents:"No events yet",starting:"Starting…",containerUnreachable:"Container unreachable",containerNotRunning:"Container not running.",startContainer:"Start Container",startMatchUi:"Start Match + UI",startHeadless:"Start Headless",ui:"UI",refresh:"Refresh",upload:"Upload",save:"Save",loading:"Loading...",noAgents:"No agents",timeout:"Match length(s)",lead:"Lead goals",preparing:"Preparing…",red:"Red",blue:"Blue",manageAgents:"Manage",startingContainer:"Starting container…"},states:{playing:"Playing",ready:"Ready",set:"Set",finished:"Finished"},events:{}};
 function T(k){return I18N.msg[k]||k}
 function humanize(ty){return ty.split("_").map(function(w){return w?w.charAt(0).toUpperCase()+w.slice(1):w}).join(" ")}
 function evLabel(ty){return I18N.events[ty]||humanize(ty)}
@@ -818,6 +874,8 @@ function applyLang(){
   setText("lblLead",T("lead"));
   setText("cwTxt",T("containerNotRunning"));
   setText("btnStartContainer",T("startContainer"));
+  setText("t_manageAgents",T("manageAgents"));
+  setText("cwLoadingTxt",T("startingContainer"));
   setText("t_b1",T("startMatchUi"));
   setText("t_b2",T("startHeadless"));
   setText("t_openSim",T("ui"));
@@ -838,6 +896,7 @@ case"agents":ra(m.agents,m.selection,m.containerRunning);break;
 case"status":lastStatus=m.status;rs(m.status);break;
 case"matchReset":panelState="running";setScore(0,0);break;
 case"status_text":{var el=document.getElementById("tEnd");if(el)el.textContent=m.text;break}
+case"containerStarting":{var sb=document.getElementById("btnStartContainer"),ld=document.getElementById("cwLoading");if(m.starting){if(sb)sb.style.display="none";if(ld)ld.style.display="block";}else{if(sb)sb.style.display="";if(ld)ld.style.display="none";}break}
 case"events":lastEvents=m.events;renderEvents(m.events);break;
 case"batchProgress":{var pg=document.getElementById("progress");if(pg)pg.textContent=m.total>1?(m.current+"/"+m.total):"";break}
 case"matchStarted":
