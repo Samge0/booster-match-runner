@@ -93,6 +93,17 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             return;
         }
         this.agents = await getAllAgents();
+        // After a reload the selection is empty; restore the two teams from the
+        // last started match (persisted locally) instead of defaulting to the
+        // first agent.
+        if (!this.selection.red && !this.selection.blue) {
+            const cur = this.loadCurrentTeams();
+            if (cur) {
+                this.output.appendLine(`[MatchRunner] reload team recovery: saved=${cur.red} vs ${cur.blue}`);
+                if (this.agents.some((a) => a.id === cur.red)) { this.selection.red = cur.red; }
+                if (this.agents.some((a) => a.id === cur.blue)) { this.selection.blue = cur.blue; }
+            }
+        }
         const config = vscode.workspace.getConfiguration("boosterMatch");
         const defaultOpponent = config.get<string>("defaultOpponent", "com.booster.default3v3ai");
         if (!this.selection.red) {
@@ -113,6 +124,24 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         } catch {
             this.postMessage({ type: "status", status: null });
         }
+    }
+
+    /** Persist the two teams of the currently running match to disk so a reload
+     *  can restore the picker. Stored under ~/.booster-match-runner/. */
+    private saveCurrentTeams(red: string, blue: string): void {
+        try {
+            const dir = path.join(os.homedir(), ".booster-match-runner");
+            fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(path.join(dir, "current-teams.json"), JSON.stringify({ red, blue, savedAt: Date.now() }, null, 2), "utf8");
+        } catch { /* best effort */ }
+    }
+
+    private loadCurrentTeams(): { red: string; blue: string } | null {
+        try {
+            const d = JSON.parse(fs.readFileSync(path.join(os.homedir(), ".booster-match-runner", "current-teams.json"), "utf8"));
+            if (d && d.red && d.blue) { return { red: String(d.red), blue: String(d.blue) }; }
+        } catch { /* not present yet */ }
+        return null;
     }
 
     private async handleMessage(msg: any) {
@@ -196,7 +225,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         }
         const items = this.agents.map((a) => ({
             label: a.name,
-            description: `(${a.source})`,
+            description: `(${a.source} · ${a.id})`,
             detail: a.id,
             agentId: a.id,
         }));
@@ -419,6 +448,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
     }
 
     private async restartRunnerWithTeams(team1: string, team2: string): Promise<void> {
+        this.saveCurrentTeams(team1, team2);
         this.output.appendLine("  Stopping old runner...");
         await dockerExec("pkill -9 -f football3v3; pkill -9 -f 'run.py.*teams'; pkill -9 -f pyagent_x86; sleep 2", 10000).catch(() => {});
         await dockerExec("rm -rf /sys/fs/cgroup/3v3_runner/team_1 /sys/fs/cgroup/3v3_runner/team_2 2>/dev/null", 5000).catch(() => {});
@@ -921,7 +951,7 @@ function ra(a,sel,cr){
 document.getElementById("cwarn").style.display=cr===false?"block":"none";
 document.getElementById("ts").style.opacity=cr===false?".4":"1";
 if(!a||!a.length){var na=T("noAgents");document.getElementById("rsel").innerHTML='<option value="">'+e(na)+'</option>';document.getElementById("bsel").innerHTML='<option value="">'+e(na)+'</option>';return;}
-var o=a.map(function(x){return'<option value="'+e(x.id)+'">'+e(x.name)+" ("+x.source+")</option>"}).join("");
+var o=a.map(function(x){return'<option value="'+e(x.id)+'">'+e(x.name)+" ("+x.source+" · "+e(x.id)+")</option>"}).join("");
 document.getElementById("rsel").innerHTML=o;document.getElementById("bsel").innerHTML=o;
 if(sel){
 document.getElementById("rsel").value=sel.red||"";document.getElementById("bsel").value=sel.blue||"";
