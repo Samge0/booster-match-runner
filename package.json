@@ -2,7 +2,7 @@
   "name": "booster-match-runner",
   "displayName": "Booster Match Runner",
   "description": "Unofficial community panel to run 3v3 soccer matches between Booster agents (requires Booster Studio + the virtual-robot sim container).",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "samge",
   "license": "MIT",
   "icon": "media/icon.png",

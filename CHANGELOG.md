@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0
+
+- **Upload agent with duplicate ID** — when an uploaded agent's ID already exists in the container, pick a custom ID/name to deploy it as an independent copy, or overwrite. Custom-ID deployment rewrites the full agent identity (ROS2 package name, `site-packages`, ament index) and restores executable bits, so the same agent can run on both teams.
+- **Manage & delete agents** — new **Manage** action opens a picker to delete any agent (container agents are removed from the container; local `.agent` files are deleted from disk), with a confirmation prompt.
+- **Reload-safe panel** — after a Booster Studio window reload, the Red/Blue pickers restore the two teams of the ongoing match (persisted locally), and the **End** button stays clickable while a match is running.
+- **Hide the built-in demo agent** — `com.boosterobotics.default` (loads but doesn't play soccer) is filtered out of the picker by default.
+- **UI polish** — Start-Container spinner while the container boots; each agent in the pickers shows its source and ID; the Actions row uses icon-over-label buttons.
+
 ## 0.1.0
 
 First public release.

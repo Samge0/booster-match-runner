@@ -123,85 +123,116 @@ export async function gameControlApi(path: string, method = "GET", timeoutMs = 5
     return JSON.parse(trimmed);
 }
 
+/** Convert an agent id to a valid ROS2 package name: lowercase, every run of
+ *  non-[a-z0-9] characters becomes a single underscore, trimmed. ROS2 package
+ *  names must match [a-z][a-z0-9_]*, so an id like "com.samge.agent.3-2"
+ *  becomes "com_samge_agent_3_2". */
+function ros2PkgName(id: string): string {
+    const pkg = id.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    return pkg || "agent";
+}
+
+/** Rewrite a deployed agent directory so its whole identity — agent.json id,
+ *  ros2.package_name, and the ROS2 package layout (agent/<pkg>, lib, share,
+ *  package.xml, launch.py, ament_index, colcon-core) — reflects newId.
+ *
+ *  Without this, deploying the SAME .agent under a second id yields two copies
+ *  that share one ROS2 package name; the second team's pyagent can't start
+ *  (package/node collision) and those robots never move. Used both by cloneAgent
+ *  and by deployAgentFile's custom-id path. */
+async function renameAgentIdentity(agentDir: string, newId: string): Promise<void> {
+    const jsonOut = await dockerExec(`cat ${agentDir}/agent.json`, 5000);
+    const orig = JSON.parse(jsonOut.trim());
+    const origPkg = orig.ros2?.package_name || ros2PkgName(orig.id || newId);
+    const newPkg = ros2PkgName(newId);
+    if (origPkg === newPkg && orig.id === newId) { return; }
+
+    // Update agent.json id + ros2.package_name (base64 script, avoids escaping).
+    const lines = [
+        "import json",
+        `p = r"${agentDir}/agent.json"`,
+        "d = json.load(open(p))",
+        `d["id"] = "${newId}"`,
+        `if d.get("ros2"): d["ros2"]["package_name"] = "${newPkg}"`,
+        "json.dump(d, open(p, 'w'), indent=4)",
+        'print("agent.json updated")',
+    ];
+    const b64 = Buffer.from(lines.join("\n") + "\n").toString("base64");
+    await dockerExec(`echo ${b64} | base64 -d > /tmp/_rename.py && python3 /tmp/_rename.py`, 10000);
+
+    // Rename internal package dirs: agentDir/agent/<pkg>/{lib,share}/<pkg>
+    const oldPkgDir = `${agentDir}/agent/${origPkg}`;
+    const newPkgDir = `${agentDir}/agent/${newPkg}`;
+    await dockerExec(`if [ -d "${oldPkgDir}" ]; then mv "${oldPkgDir}" "${newPkgDir}"; fi`, 5000);
+    await dockerExec(`if [ -d "${newPkgDir}/lib/${origPkg}" ]; then mv "${newPkgDir}/lib/${origPkg}" "${newPkgDir}/lib/${newPkg}"; fi`, 5000);
+    await dockerExec(`if [ -d "${newPkgDir}/share/${origPkg}" ]; then mv "${newPkgDir}/share/${origPkg}" "${newPkgDir}/share/${newPkg}"; fi`, 5000);
+
+    // Update package.xml
+    await dockerExec(
+        `find ${newPkgDir}/share -name "package.xml" -exec sed -i 's|<name>${origPkg}</name>|<name>${newPkg}</name>|g' {} + 2>/dev/null`,
+        5000
+    ).catch(() => {});
+    // Update launch.py
+    await dockerExec(
+        `find ${newPkgDir}/share -name "launch.py" -exec sed -i "s|package='${origPkg}'|package='${newPkg}'|g" {} + 2>/dev/null`,
+        5000
+    ).catch(() => {});
+    // Rename ament_index resource marker. Path is fixed at
+    // share/ament_index/resource_index/packages/<pkg>, so a direct mv is enough
+    // (a previous `find -exec mv ... 2>/dev/null \;` was buggy: the redirect,
+    // sitting before `\;`, was passed to mv as a literal arg and the marker was
+    // never renamed → ROS2 launch "Package not found").
+    await dockerExec(
+        `mv ${newPkgDir}/share/ament_index/resource_index/packages/${origPkg} ${newPkgDir}/share/ament_index/resource_index/packages/${newPkg} 2>/dev/null; true`,
+        5000
+    ).catch(() => {});
+    // Rename colcon-core packages
+    await dockerExec(
+        `find ${newPkgDir}/share/colcon-core -name "${origPkg}*" -exec bash -c 'mv "$0" "$(dirname $0)/${newPkg}"' {} \; 2>/dev/null`,
+        5000
+    ).catch(() => {});
+
+    // Rename the Python package under site-packages. pyagent loads its pymod
+    // from lib/python*/site-packages/<package_name>; if we leave the original
+    // dir name it aborts with "Pymod dir not exist". Also rename the
+    // egg-info/dist-info dir and fix top_level.txt. (Safe because Booster
+    // agents use relative imports — verified no absolute imports of the pkg.)
+    const spLines = [
+        "import os, glob",
+        `origPkg = r"${origPkg}"`,
+        `newPkg = r"${newPkg}"`,
+        `for sp in glob.glob(r"${newPkgDir}/lib/python*/site-packages"):`,
+        "    src = os.path.join(sp, origPkg)",
+        "    if os.path.exists(src): os.rename(src, os.path.join(sp, newPkg))",
+        "    for old in glob.glob(os.path.join(sp, origPkg + '-*')):",
+        "        base = os.path.basename(old)",
+        "        os.rename(old, os.path.join(sp, newPkg + base[len(origPkg):]))",
+        "    for info in glob.glob(os.path.join(sp, newPkg + '-*.egg-info')) + glob.glob(os.path.join(sp, newPkg + '-*.dist-info')):",
+        "        tl = os.path.join(info, 'top_level.txt')",
+        "        if os.path.exists(tl):",
+        "            with open(tl) as f: c = f.read()",
+        "            with open(tl, 'w') as f: f.write(c.replace(origPkg, newPkg))",
+        "print('site-packages renamed')",
+    ];
+    const spB64 = Buffer.from(spLines.join("\n") + "\n").toString("base64");
+    await dockerExec(`echo ${spB64} | base64 -d > /tmp/_sp.py && python3 /tmp/_sp.py`, 10000).catch(() => {});
+}
+
 /**
  * Clone an agent in the container with a different ID (e.g. com.samge.agent -> com.samge.agent.blue).
- * This is needed when both teams use the same agent and ROS2 package names would conflict.
- *
- * Steps:
- * 1. Copy the extract dir
- * 2. Update agent.json id + ros2.package_name
- * 3. Rename internal dirs to match new package_name
- * 4. Update package.xml and launch.py
+ * Needed when both teams use the same agent and ROS2 package names would conflict.
  */
 export async function cloneAgent(sourceId: string, cloneId: string): Promise<void> {
     const extractRoot = "/opt/booster/booster_agent_data/data/agents/extract";
     const srcDir = `${extractRoot}/${sourceId}`;
     const dstDir = `${extractRoot}/${cloneId}`;
 
-    // Check if clone already exists
     const exists = await dockerExec(`test -d ${dstDir} && echo yes || echo no`, 5000);
     if (exists.trim() === "yes") {
-        // Remove old clone
         await dockerExec(`rm -rf ${dstDir}`, 10000);
     }
-
-    // Step 1: Copy the directory
     await dockerExec(`cp -a ${srcDir} ${dstDir}`, 30000);
-
-    // Step 2: Read original agent.json to get the original package_name
-    const origJson = await dockerExec(`cat ${srcDir}/agent.json`, 5000);
-    const orig = JSON.parse(origJson.trim());
-    const origPkg = orig.ros2?.package_name || `${sourceId.replace(/\./g, "_")}`;
-    const clonePkg = `${cloneId.replace(/\./g, "_")}`;
-
-    // Step 3: Update agent.json (write script via base64 to avoid shell escaping)
-    const cloneLines = [
-        "import json",
-        `p = r"${dstDir}/agent.json"`,
-        "d = json.load(open(p))",
-        `d["id"] = "${cloneId}"`,
-        `d["ros2"]["package_name"] = "${clonePkg}"`,
-        "json.dump(d, open(p, 'w'), indent=4)",
-        'print("agent.json updated")',
-    ];
-    const cloneB64 = Buffer.from(cloneLines.join("\n") + "\n").toString("base64");
-    await dockerExec(`echo ${cloneB64} | base64 -d > /tmp/_clone.py && python3 /tmp/_clone.py`, 10000);
-
-    // Step 4: Rename internal package dirs
-    // Structure: dstDir/agent/<pkg>/lib/<pkg>/  and  dstDir/agent/<pkg>/share/<pkg>/
-    const oldAgentDir = `${dstDir}/agent/${origPkg}`;
-    const newAgentDir = `${dstDir}/agent/${clonePkg}`;
-    await dockerExec(`if [ -d "${oldAgentDir}" ]; then mv "${oldAgentDir}" "${newAgentDir}"; fi`, 5000);
-
-    // Rename lib/<old> -> lib/<new>
-    await dockerExec(`if [ -d "${newAgentDir}/lib/${origPkg}" ]; then mv "${newAgentDir}/lib/${origPkg}" "${newAgentDir}/lib/${clonePkg}"; fi`, 5000);
-
-    // Rename share/<old> -> share/<new>
-    await dockerExec(`if [ -d "${newAgentDir}/share/${origPkg}" ]; then mv "${newAgentDir}/share/${origPkg}" "${newAgentDir}/share/${clonePkg}"; fi`, 5000);
-
-    // Update package.xml
-    await dockerExec(
-        `find ${newAgentDir}/share -name "package.xml" -exec sed -i 's|<name>${origPkg}</name>|<name>${clonePkg}</name>|g' {} + 2>/dev/null`,
-        5000
-    ).catch(() => {});
-
-    // Update launch.py
-    await dockerExec(
-        `find ${newAgentDir}/share -name "launch.py" -exec sed -i "s|package='${origPkg}'|package='${clonePkg}'|g" {} + 2>/dev/null`,
-        5000
-    ).catch(() => {});
-
-    // Rename ament_index resource
-    await dockerExec(
-        `find ${newAgentDir}/share/ament_index -name "${origPkg}" -exec mv {} ${newAgentDir}/share/ament_index/resource_index/packages/${clonePkg} 2>/dev/null \;`,
-        5000
-    ).catch(() => {});
-
-    // Rename colcon-core packages
-    await dockerExec(
-        `find ${newAgentDir}/share/colcon-core -name "${origPkg}*" -exec bash -c 'mv "$0" "$(dirname $0)/${clonePkg}"' {} \; 2>/dev/null`,
-        5000
-    ).catch(() => {});
+    await renameAgentIdentity(dstDir, cloneId);
 }
 
 /**
@@ -210,7 +241,8 @@ export async function cloneAgent(sourceId: string, cloneId: string): Promise<voi
  */
 export async function deployAgentFile(
     hostPath: string,
-    agentIdOverride?: string
+    agentIdOverride?: string,
+    nameOverride?: string
 ): Promise<string> {
     const extractRoot = "/opt/booster/booster_agent_data/data/agents/extract";
     const containerTmp = "/tmp/uploaded_agent.agent";
@@ -256,6 +288,44 @@ export async function deployAgentFile(
     // Copy other dirs
     for (const d of ["res", "resources", "libs"]) {
         await dockerExec(`test -d ${tmpExtract}/${d} && cp -a ${tmpExtract}/${d} ${targetDir}/${d} 2>/dev/null; true`, 5000);
+    }
+
+    // Restore executable bits. python zipfile.extractall() does NOT apply the
+    // unix mode stored in the zip, so pyagent_x86_64 / *.so end up non-executable
+    // (mode 0644) and ROS2 launch aborts with "executable 'pyagent_x86_64' not
+    // found on the libexec directory". chmod the agent binaries + shared libs.
+    await dockerExec(
+        `find ${targetDir} -type f \\( -name 'pyagent*' -o -name '*.so*' \\) -exec chmod +x {} + 2>/dev/null; true`,
+        10000
+    );
+
+    // When deploying under a custom id, rewrite the agent's whole identity
+    // (agent.json id + ros2.package_name + ROS2 package layout) so it becomes a
+    // truly independent agent. Otherwise two copies of the same .agent share one
+    // ROS2 package name and the second team's pyagent can't start.
+    if (agentIdOverride && agentIdOverride !== agentJson.id) {
+        await renameAgentIdentity(targetDir, agentIdOverride);
+    }
+
+    // Override display name in agent.json if requested. Name may be a string
+    // or a LocaleString object ({en, zh, ...}); we set the .en field when it's
+    // an object, else replace the string. Name is passed base64-encoded to
+    // avoid shell/quote escaping issues.
+    if (nameOverride) {
+        const b64Name = Buffer.from(nameOverride, "utf-8").toString("base64");
+        const nameLines = [
+            "import json, base64",
+            `p = r"${targetDir}/agent.json"`,
+            "d = json.load(open(p, encoding='utf-8'))",
+            `val = base64.b64decode("${b64Name}").decode('utf-8')`,
+            "nm = d.get('name')",
+            "if isinstance(nm, dict): nm['en'] = val",
+            "else: d['name'] = val",
+            "json.dump(d, open(p, 'w', encoding='utf-8'), ensure_ascii=False)",
+            "print('name-set')",
+        ];
+        const nameB64 = Buffer.from(nameLines.join("\n") + "\n").toString("base64");
+        await dockerExec(`echo ${nameB64} | base64 -d > /tmp/_setname.py && python3 /tmp/_setname.py`, 10000);
     }
 
     // Clean up

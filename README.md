@@ -20,10 +20,11 @@ A sidebar panel for **Booster Studio** that runs **3v3 robot soccer matches** be
   - Every finished match is archived to `~/.booster-match-runner/matches/` (zip = summary + events + run log).
   - **Match records** picker: reveal a record in the file manager, or **export all to CSV** (Excel-friendly, UTF-8 BOM).
   - **Save log** — manually pack the current match into a zip.
-- **Upload `.agent`** packages straight into the container.
-- **Start the sim container** from the panel if it isn't running.
+- **Upload `.agent`** packages straight into the container. Uploading an agent whose ID already exists lets you deploy it under a **custom ID/name** as an independent copy (or overwrite) — the same agent can then play on both teams.
+- **Manage agents** — the **Manage** action lists every agent; delete any one (container agents are removed from the container, local `.agent` files from disk) with a confirmation prompt.
+- **Start the sim container** from the panel if it isn't running (with a spinner while it boots).
 - **Optional auto-end** — set a max duration (s) and/or a lead-goal margin on the panel; `0` disables it, so the match ends only when the sim reports it finished.
-- **Resilient** — an independent polling loop survives window reload/reopen and re-baselines to the current match.
+- **Resilient** — survives a Booster Studio window reload/reopen: the Red/Blue pickers restore the two teams of the in-progress match and the **End** button stays clickable.
 
 ---
 
@@ -31,6 +32,7 @@ A sidebar panel for **Booster Studio** that runs **3v3 robot soccer matches** be
 
 | Plugin version | Booster Studio | sim image (default) | Notes |
 |---|---|---|---|
+| 0.2.0 | **1.9.10** | `virtual-robot:0.6.5-beta` | Duplicate-ID upload with custom id/name, agent manage/delete, reload-safe pickers |
 | 0.1.0 | **1.9.10** | `virtual-robot:0.6.5-beta` | i18n (EN/ZH), new icon, GitHub Actions release pipeline |
 
 > The required Booster Studio version is also declared in `engines.boosterStudio` in `package.json`.
@@ -110,6 +112,7 @@ Open Booster Studio Settings and search for `boosterMatch`:
 4. Click **Start Match + UI** (visual) or **Start Headless** (no UI).
 5. Watch the live score + Key Events; the match auto-saves when finished.
 6. Use the 📋 button to open **Match records**, reveal a file, or export all to CSV.
+7. Use **Manage** to delete any agent you no longer need (container or local `.agent` file).
 
 ---
 

@@ -20,10 +20,11 @@
   - 每场结束的比赛自动归档到 `~/.booster-match-runner/matches/`（zip 内含：摘要 + 事件 + 运行日志）。
   - **Match records（比赛记录）**选择器：在文件管理器中定位，或**全部导出为 CSV**（Excel 友好，UTF-8 BOM）。
   - **Save log**：手动把当前比赛打包成 zip。
-- **上传 `.agent`** 包直接部署进容器。
-- **启动仿真容器**：容器没运行时可从面板一键启动。
+- **上传 `.agent`** 包直接部署进容器。上传的 agent 若 ID 已存在，可选择用**自定义 ID/名称**部署为独立副本（或直接覆盖）——这样同一个 agent 可以同时作为红蓝双方对战。
+- **管理 agent**：**Manage** 操作列出全部 agent，可删除任意一个（容器内 agent 从容器移除，本地 `.agent` 文件从磁盘删除），删除前有二次确认。
+- **启动仿真容器**：容器没运行时可从面板一键启动（启动过程中显示转圈动画）。
 - **可选自动结束**：在面板设置超时秒数和/或领先球数阈值；填 `0` 表示不启用，比赛仅在仿真判定结束时结束。
-- **抗重载**：独立的轮询循环在窗口重载/重开后仍能恢复，并自动对齐到当前比赛。
+- **抗重载**：插件能在 Booster Studio 窗口重载/重开后恢复——红蓝下拉自动恢复到当前比赛的两队，**End（结束）**按钮在比赛进行中保持可点击。
 
 ---
 
@@ -31,6 +32,7 @@
 
 | 插件版本 | Booster Studio | 仿真镜像（默认） | 备注 |
 |---|---|---|---|
+| 0.2.0 | **1.9.10** | `virtual-robot:0.6.5-beta` | 重复 ID 上传支持自定义 id/名称、agent 管理与删除、重载后恢复队伍选择 |
 | 0.1.0 | **1.9.10** | `virtual-robot:0.6.5-beta` | 中英 i18n、新图标、GitHub Actions 发布流水线 |
 
 > 要求的 Booster Studio 版本也写在 `package.json` 的 `engines.boosterStudio` 中。
@@ -110,6 +112,7 @@ npx vsce package --no-git-tag-version --allow-missing-repository
 4. 点 **Start Match + UI**（可视化）或 **Start Headless**（无界面）。
 5. 观察实时比分与 Key Events；比赛结束会自动保存。
 6. 用 📋 按钮打开 **Match records**，定位文件或导出全部为 CSV。
+7. 用 **Manage** 删除不再需要的 agent（容器内 agent 或本地 `.agent` 文件）。
 
 ---
 

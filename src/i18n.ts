@@ -43,6 +43,11 @@ const MESSAGES: Record<Lang, Record<string, string>> = {
         red: "Red",
         blue: "Blue",
         exportAll: "📥 Export all to CSV...",
+        agents: "Agents",
+        startingContainer: "Starting container…",
+        confirmDelete: "Delete this agent? This cannot be undone.",
+        manageAgents: "Manage",
+        manageAgentsHint: "Select an agent to delete (Esc to cancel)",
     },
     zh: {
         score: "比分",
@@ -72,6 +77,11 @@ const MESSAGES: Record<Lang, Record<string, string>> = {
         red: "红",
         blue: "蓝",
         exportAll: "📥 导出全部为 CSV...",
+        agents: "Agent 列表",
+        startingContainer: "正在启动容器…",
+        confirmDelete: "确认删除该 Agent？此操作不可撤销。",
+        manageAgents: "管理",
+        manageAgentsHint: "选择要删除的 Agent（按 Esc 取消）",
     },
 };
 
