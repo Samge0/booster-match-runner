@@ -97,7 +97,7 @@ events.jsonl 每行一个 JSON：`{ eventId, wallTime, type, actor:{side,teamNam
 
 **发现**（`src/agentManager.ts`）：
 - 容器内：`ls /opt/booster/.../extract` → 每个目录是一个 agent（id = 目录名）。
-- 宿主机：扫描 `projectsDir` + `hostAgentRoots`（深入一层工程目录 + 根目录下的 `.agent`）。
+- 宿主机：扫描 `hostAgentRoots`（深入一层工程目录 + 根目录下的 `.agent`）。
 - `.agent` 是 zip，读其中 `agent.json` 的 `id`（**id 必须与解压目录名一致**，否则 `run.py` 找不到）。
 
 **部署 `.agent`**（`deployAgentFile`）：

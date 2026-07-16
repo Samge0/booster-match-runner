@@ -94,15 +94,11 @@ function makeAgentFromFile(agentFile: string): AgentInfo {
     return { id: meta.id, name: meta.name, source: "file", path: agentFile, version: meta.version };
 }
 
-/** Discover .agent files under projectsDir and any extra hostAgentRoots.
+/** Discover .agent files under the configured hostAgentRoots.
  *  Scans one level into each root (project folders) plus .agent files sitting
  *  directly in the root. Roots are user-configured; empty by default. */
 export async function discoverHostAgentFiles(): Promise<AgentInfo[]> {
-    const config = vscode.workspace.getConfiguration("boosterMatch");
-    const roots = [
-        config.get<string>("projectsDir", ""),
-        ...config.get<string[]>("hostAgentRoots", []),
-    ].filter(Boolean);
+    const roots = vscode.workspace.getConfiguration("boosterMatch").get<string[]>("hostAgentRoots", []).filter(Boolean);
 
     const agents: AgentInfo[] = [];
     for (const root of roots) {

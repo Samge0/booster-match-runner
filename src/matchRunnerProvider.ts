@@ -365,11 +365,13 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
     }
 
     async uploadAgentFile() {
-        const projectsDir = vscode.workspace.getConfiguration("boosterMatch").get<string>("projectsDir", "");
+        const ws = vscode.workspace.workspaceFolders;
+        const roots = vscode.workspace.getConfiguration("boosterMatch").get<string[]>("hostAgentRoots", []);
+        const defaultPath = (ws && ws.length > 0 ? ws[0].uri.fsPath : "") || (roots.length > 0 ? roots[0] : "");
         const uri = await vscode.window.showOpenDialog({
             canSelectMany: false, filters: { "Agent Package": ["agent"] },
             title: "Select .agent file",
-            defaultUri: projectsDir ? vscode.Uri.file(projectsDir) : undefined,
+            defaultUri: defaultPath ? vscode.Uri.file(defaultPath) : undefined,
         });
         if (!uri || uri.length === 0) { return; }
         const filePath = uri[0].fsPath;

@@ -99,8 +99,7 @@ npx vsce package --no-git-tag-version --allow-missing-repository
 | `boosterMatch.simImage` | `booster-robotics-registry.cn-beijing.cr.aliyuncs.com/virtual-robot/virtual-robot:0.6.5-beta` | 用于定位/启动仿真容器的镜像。 |
 | `boosterMatch.gameControlPort` | `38383` | **容器内** game-control HTTP API 端口。 |
 | `boosterMatch.defaultOpponent` | `com.booster.default3v3ai` | 默认蓝方 agent id。 |
-| `boosterMatch.projectsDir` | `""` | 宿主机上 Booster Studio agent 工程目录（扫描 `.agent`）。 |
-| `boosterMatch.hostAgentRoots` | `[]` | 额外的宿主机目录，用于扫描 `.agent` 文件。 |
+| `boosterMatch.hostAgentRoots` | `[]` | 宿主机目录，用于扫描 `.agent` 文件（深入一层工程目录 + 根目录下的 `.agent`）。 |
 
 ---
 

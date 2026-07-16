@@ -99,8 +99,7 @@ Open Booster Studio Settings and search for `boosterMatch`:
 | `boosterMatch.simImage` | `booster-robotics-registry.cn-beijing.cr.aliyuncs.com/virtual-robot/virtual-robot:0.6.5-beta` | Image used to locate/start the sim container. |
 | `boosterMatch.gameControlPort` | `38383` | Game-control HTTP API port **inside** the container. |
 | `boosterMatch.defaultOpponent` | `com.booster.default3v3ai` | Default Blue-team agent id. |
-| `boosterMatch.projectsDir` | `""` | Host dir of Booster Studio agent projects (scanned for `.agent`). |
-| `boosterMatch.hostAgentRoots` | `[]` | Extra host dirs to scan for `.agent` files. |
+| `boosterMatch.hostAgentRoots` | `[]` | Host dirs to scan for `.agent` files (one level into each root + root-level `.agent`). |
 
 ---
 
