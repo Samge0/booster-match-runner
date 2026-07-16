@@ -48,6 +48,33 @@ const MESSAGES: Record<Lang, Record<string, string>> = {
         manageAgentsHint: "Select an agent to delete (Esc to cancel)",
         simBlockedHeadless: "Cannot open the simulator UI during a headless match: it resets game-control and would interrupt the running match. Use 'Start Match + UI' instead, or End the headless match first.",
         settings: "Settings",
+        clock: "Clock",
+        play: "Play",
+        stopped: "Stopped",
+        winner: "Winner",
+        noSetPlay: "Open play",
+        customDeployTitle: "Deploy Agent — Custom id / name",
+        customDeployHint: "Agent id '{id}' already exists. A version suffix '{suf}' was appended automatically — edit it, or clear the id to overwrite the original.",
+        customDeployIdLabel: "Agent id",
+        customDeployNameLabel: "Display name",
+        customDeployIdInvalid: "Only letters, digits and dots; must start with a letter.",
+        customDeployOk: "Confirm",
+        customDeployCancel: "Cancel",
+        customDeployAlsoExists: "Agent id '{id}' also exists. Overwrite it?",
+        customDeployOverwrite: "Overwrite",
+        deployingAgent: "Deploying agent...",
+        deployedAgent: "Deployed",
+        deployModeNew: "new",
+        deployModeOverwrite: "overwrite",
+        deletingAgent: "Deleting agent...",
+        deleteFailed: "Delete failed",
+        deleteBlockedByMatch: "This agent is currently in a running match. Stop the match before deleting it.",
+        runnerDied: "Runner process exited unexpectedly. This is usually stale state on the Booster Studio side. Please restart Booster Studio and retry.",
+        runnerNotReady: "Runner not ready in 75s — robots may not move. This is usually stale state on the Booster Studio side. Please restart Booster Studio and retry.",
+        diagnose: "Diagnose",
+        diagTitle: "=== Environment Diagnosis ===",
+        diagRos2: "ros2 launch processes (incl. booster_agent_manager)",
+        diagSandboxes: "Stale historical sandboxes",
     },
     zh: {
         score: "比分",
@@ -82,7 +109,57 @@ const MESSAGES: Record<Lang, Record<string, string>> = {
         manageAgentsHint: "选择要删除的 Agent（按 Esc 取消）",
         simBlockedHeadless: "无头比赛进行中无法打开可视化 UI：会重置 game-control 并中断当前比赛。请改用「Start Match + UI」，或先结束无头比赛。",
         settings: "设置",
+        clock: "时钟",
+        play: "局面",
+        stopped: "已停止",
+        winner: "胜方",
+        noSetPlay: "常规",
+        customDeployTitle: "部署 Agent — 自定义 id / 名称",
+        customDeployHint: "Agent id「{id}」已存在。已自动拼接版本后缀「{suf}」（可自行修改；清空 id 或保持「{id}」则覆盖原 agent）。",
+        customDeployIdLabel: "Agent id",
+        customDeployNameLabel: "显示名称",
+        customDeployIdInvalid: "只允许字母、数字和点，且以字母开头。",
+        customDeployOk: "确定",
+        customDeployCancel: "取消",
+        customDeployAlsoExists: "Agent id「{id}」也已存在，是否覆盖？",
+        customDeployOverwrite: "覆盖",
+        deployingAgent: "正在部署 Agent…",
+        deployedAgent: "已部署",
+        deployModeNew: "新增",
+        deployModeOverwrite: "覆盖",
+        deletingAgent: "正在删除 Agent…",
+        deleteFailed: "删除失败",
+        deleteBlockedByMatch: "该 agent 正在比赛中，请先停止比赛再删除。",
+        runnerDied: "Runner 进程意外退出。通常是 Booster Studio 侧状态陈旧导致，请重启 Booster Studio 后重试。",
+        runnerNotReady: "Runner 75 秒内未就绪——机器人可能不动。通常是 Booster Studio 侧状态陈旧导致，请重启 Booster Studio 后重试。",
+        diagnose: "诊断",
+        diagTitle: "=== 环境诊断 ===",
+        diagRos2: "ros2 launch 进程（含 booster_agent_manager）",
+        diagSandboxes: "堆积的历史 sandbox",
     },
+};
+
+/** Set-play type labels. Codes are camelCase from the sim's GameControl state
+ *  (e.g. "noSetPlay", "throwIn", "cornerKick"). English falls back to
+ *  humanizeCamel(), so only Chinese is maintained here. */
+const SETPLAY_LABELS: Record<Lang, Record<string, string>> = {
+    en: {},
+    zh: {
+        noSetPlay: "常规",
+        directFreeKick: "直接任意球",
+        indirectFreeKick: "间接任意球",
+        penaltyKick: "点球",
+        throwIn: "界外球",
+        goalKick: "球门球",
+        cornerKick: "角球",
+        droppedBall: "坠球",
+    },
+};
+
+/** Timing-stage labels (game.timingStage / timing.stage). */
+const STAGE_LABELS: Record<Lang, Record<string, string>> = {
+    en: {},
+    zh: { regulation: "常规", overtime: "加时", shootout: "点球大战" },
 };
 
 /** Match state labels. */
@@ -152,9 +229,27 @@ export function eventLabel(type: string): string {
     return EVENT_LABELS[currentLang][type] ?? humanizeType(type);
 }
 
+/** Set-play label for a camelCase code (e.g. "throwIn" -> "界外球" / "Throw In"). */
+export function setPlayLabel(code: string): string {
+    return SETPLAY_LABELS[currentLang][code] ?? SETPLAY_LABELS.en[code] ?? humanizeCamel(code);
+}
+
+/** Timing-stage label for a code (e.g. "overtime" -> "加时" / "Overtime"). */
+export function stageLabel(code: string): string {
+    return STAGE_LABELS[currentLang][code] ?? STAGE_LABELS.en[code] ?? humanizeCamel(code);
+}
+
 /** snake_case -> "Title Case" (e.g. goal_disallowed_indirect -> "Goal Disallowed Indirect"). */
 export function humanizeType(type: string): string {
     return type.split("_").map((w) => w ? w[0].toUpperCase() + w.slice(1) : w).join(" ");
+}
+
+/** camelCase -> "Title Case" (e.g. noSetPlay -> "No Set Play", throwIn -> "Throw In"). */
+export function humanizeCamel(code: string): string {
+    return code
+        .replace(/([A-Z])/g, " $1")
+        .replace(/^./, (c) => c.toUpperCase())
+        .trim();
 }
 
 export interface I18nBundle {
@@ -162,6 +257,8 @@ export interface I18nBundle {
     msg: Record<string, string>;
     states: Record<string, string>;
     events: Record<string, string>;
+    setplays: Record<string, string>;
+    stages: Record<string, string>;
 }
 
 /** Build the bundle shipped to the webview so its inline JS can translate. */
@@ -171,5 +268,7 @@ export function getI18nBundle(): I18nBundle {
         msg: MESSAGES[currentLang],
         states: STATE_LABELS[currentLang],
         events: EVENT_LABELS[currentLang],
+        setplays: SETPLAY_LABELS[currentLang],
+        stages: STAGE_LABELS[currentLang],
     };
 }

@@ -9,7 +9,7 @@ import { getAllAgents, readAgentFileMeta, containerAgentExists } from "./agentMa
 import { getMatchStatus, startMatch as apiStartMatch, endMatch as apiEndMatch } from "./matchRunner";
 import { isContainerRunning, dockerExec, cloneAgent, deployAgentFile, gameControlApi, dockerExecDetached, startSimContainer } from "./docker";
 import { AgentInfo, MatchStatus } from "./types";
-import { getBaseLineCount, readNewEvents, ParsedEvent, shellQuote } from "./eventReader";
+import { getBaseLineCount, readNewEvents, dedupeByEventId, ParsedEvent, shellQuote } from "./eventReader";
 import { initLang, toggleLang, getI18nBundle, t, eventLabel, getLang } from "./i18n";
 import AdmZip from "adm-zip";
 import * as path from "path";
@@ -127,7 +127,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
     async updateStatus() {
         try {
             const status = await getMatchStatus();
-            this.postMessage({ type: "status", status });
+            this.postMessage({ type: "status", status, teams: this.currentTeamsInfo() });
         } catch {
             this.postMessage({ type: "status", status: null });
         }
@@ -153,6 +153,23 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         return null;
     }
 
+    /** Resolve the current match's team display names from current-teams.json
+     *  (ids mapped to names via the agent list). Shipped to the webview so
+     *  winner/kickingSide show the names of the teams actually in THAT match,
+     *  decoupled from the team dropdown — which the user may re-point after the
+     *  match ended. Falls back to the raw id when the agent name is unknown. */
+    private currentTeamsInfo(): { red: { id: string; name: string }; blue: { id: string; name: string } } {
+        const t = this.loadCurrentTeams();
+        const resolve = (id: string): { id: string; name: string } => {
+            const found = this.agents.find((a) => a.id === id);
+            return { id, name: found ? found.name : id };
+        };
+        if (!t) {
+            return { red: { id: "", name: "" }, blue: { id: "", name: "" } };
+        }
+        return { red: resolve(t.red), blue: resolve(t.blue) };
+    }
+
     private async handleMessage(msg: any) {
         switch (msg.type) {
             case "toggleLang": {
@@ -172,6 +189,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             case "uploadAgent": await this.uploadAgentFile(); break;
             case "startContainer": await this.startContainer(); break;
             case "manageAgents": await this.manageAgents(); break;
+            case "diagnose": await this.diagnoseEnvironment(); break;
             case "saveLog": await this.saveLog(); break;
             case "showRecords": await this.showRecords(); break;
             case "openSettings": await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:samge.booster-match-runner"); break;
@@ -205,6 +223,13 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
     async deleteAgent(agentId: string) {
         const agent = this.agents.find((a) => a.id === agentId);
         if (!agent) { return; }
+        // Block deleting an agent that is currently in a running match — run.py
+        // still references it, and removing it mid-match can stall that team.
+        // The user must stop the match first.
+        if (this.isRunning && (this.selection.red === agentId || this.selection.blue === agentId)) {
+            vscode.window.showWarningMessage(t("deleteBlockedByMatch"));
+            return;
+        }
         const where = agent.source === "container" ? `container:${agent.path}` : agent.path;
         const choice = await vscode.window.showWarningMessage(
             `${t("confirmDelete")}\n${where}`,
@@ -212,16 +237,21 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         );
         if (choice !== "Delete") { return; }
         try {
-            if (agent.source === "container") {
-                await dockerExec(`rm -rf "${agent.path}"`, 10000);
-            } else if (agent.path) {
-                await fs.promises.rm(agent.path, { recursive: true, force: true });
-            }
-            if (this.selection.red === agentId) { this.selection.red = ""; }
-            if (this.selection.blue === agentId) { this.selection.blue = ""; }
-            await this.refresh();
+            await vscode.window.withProgress(
+                { location: vscode.ProgressLocation.Notification, title: t("deletingAgent"), cancellable: false },
+                async () => {
+                    if (agent.source === "container") {
+                        await dockerExec(`rm -rf "${agent.path}"`, 10000);
+                    } else if (agent.path) {
+                        await fs.promises.rm(agent.path, { recursive: true, force: true });
+                    }
+                    if (this.selection.red === agentId) { this.selection.red = ""; }
+                    if (this.selection.blue === agentId) { this.selection.blue = ""; }
+                    await this.refresh();
+                },
+            );
         } catch (err: any) {
-            vscode.window.showErrorMessage("Delete failed: " + err.message);
+            vscode.window.showErrorMessage(`${t("deleteFailed")}: ${err.message}`);
         }
     }
 
@@ -234,7 +264,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             return;
         }
         const items = this.agents.map((a) => ({
-            label: a.name,
+            label: a.version ? `${a.name} v${a.version}` : a.name,
             description: `(${a.source} · ${a.id})`,
             detail: a.id,
             agentId: a.id,
@@ -244,6 +274,29 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         });
         if (!pick) { return; }
         await this.deleteAgent(pick.agentId);
+    }
+
+    /** Read-only environment diagnosis: dump running ros2 launch processes and
+     *  accumulated historical sandboxes to the output channel so the user can
+     *  inspect the container state when a match won't start cleanly. */
+    private async diagnoseEnvironment(): Promise<void> {
+        this.output.show(true);
+        this.output.appendLine(t("diagTitle"));
+        try {
+            const out = await dockerExec("pgrep -af 'ros2 launch' 2>/dev/null | grep -v pgrep", 5000);
+            const lines = out.split("\n").map((s) => s.trim()).filter(Boolean);
+            this.output.appendLine(`[${t("diagRos2")}] ${lines.length}`);
+            for (const l of lines) { this.output.appendLine("  • " + l); }
+        } catch { this.output.appendLine(`[${t("diagRos2")}] <unavailable>`); }
+        try {
+            const out = await dockerExec("ls /run/3v3_runner/ 2>/dev/null", 5000);
+            const all = out.split("\n").map((s) => s.trim()).filter(Boolean);
+            const stale = all.filter((s) => s !== "team_1" && s !== "team_2");
+            this.output.appendLine(`[${t("diagSandboxes")}] ${stale.length}` + (all.length !== stale.length ? ` (total ${all.length}, team_1/team_2 excluded)` : ""));
+            for (const s of stale.slice(0, 30)) { this.output.appendLine("  • " + s); }
+            if (stale.length > 30) { this.output.appendLine(`  ... and ${stale.length - 30} more`); }
+        } catch { this.output.appendLine(`[${t("diagSandboxes")}] <unavailable>`); }
+        this.output.appendLine("=".repeat(28));
     }
 
     /** Check no match is in progress. */
@@ -434,46 +487,128 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             let idOverride: string | undefined;
             let nameOverride: string | undefined;
             if (await containerAgentExists(meta.id)) {
-                const choice = await vscode.window.showWarningMessage(
-                    `Agent id '${meta.id}' already exists in the container.`,
-                    "Use new id/name",
-                    "Overwrite"
-                );
-                if (choice === undefined) { return; }
-                if (choice === "Use new id/name") {
-                    const newId = await vscode.window.showInputBox({
-                        prompt: "Custom agent id (directory name). Leave as-is to overwrite.",
-                        value: meta.id,
-                        validateInput: (v) => {
-                            const s = v.trim();
-                            if (!s) { return undefined; } // empty = overwrite
-                            // ROS2 node names are derived from the id (dots -> underscores)
-                            // and only allow alphanumerics + '_'. A '-' in the id produces
-                            // an invalid node name and the agent aborts at instantiate.
-                            return /^[a-zA-Z][a-zA-Z0-9.]*$/.test(s)
-                                ? undefined
-                                : "Only letters, digits and dots are allowed (no '-', '_', spaces). Must start with a letter.";
-                        },
-                    });
-                    if (newId === undefined) { return; }
-                    const newName = await vscode.window.showInputBox({
-                        prompt: "Custom display name for this agent.",
-                        value: meta.name,
-                    });
-                    if (newName === undefined) { return; }
-                    // Empty or unchanged id means overwrite → no override.
-                    if (newId.trim() && newId.trim() !== meta.id) {
-                        idOverride = newId.trim();
+                // Id collision: open a single webview form (id + name together)
+                // with version-suffix defaults, instead of two sequential input
+                // boxes. Clearing/keeping the id means overwrite the original.
+                const r = await this.promptCustomDeploy(meta);
+                if (r === undefined) { return; }   // user cancelled
+                if (r.idOverride) {
+                    idOverride = r.idOverride;
+                    nameOverride = r.nameOverride;
+                    if (await containerAgentExists(r.idOverride)) {
+                        const ow = await vscode.window.showWarningMessage(
+                            t("customDeployAlsoExists").replace("{id}", r.idOverride),
+                            t("customDeployOverwrite"),
+                            t("customDeployCancel"),
+                        );
+                        if (ow !== t("customDeployOverwrite")) { return; }
                     }
-                    if (newName.trim() && newName.trim() !== meta.name) {
-                        nameOverride = newName.trim();
-                    }
+                } else {
+                    nameOverride = r.nameOverride;
                 }
             }
-            const id = await deployAgentFile(filePath, idOverride, nameOverride);
-            vscode.window.showInformationMessage(`Deployed: ${id}`);
+            // Mode reflects reality: does the TARGET id (custom or original)
+            // already exist in the container? exists => overwrite, else => new.
+            // (idOverride being set just means "user typed a custom id in the
+            // collision form", NOT "this is a new deploy" — a first-time upload
+            // with no collision has idOverride undefined but is still a NEW deploy.)
+            const targetId = idOverride || meta.id;
+            const deployMode = (await containerAgentExists(targetId)) ? t("deployModeOverwrite") : t("deployModeNew");
+            const id = await vscode.window.withProgress(
+                { location: vscode.ProgressLocation.Notification, title: `${t("deployingAgent")} (${deployMode})`, cancellable: false },
+                () => deployAgentFile(filePath, idOverride, nameOverride, (s) => this.diagLine(s)),
+            );
+            vscode.window.showInformationMessage(`${t("deployedAgent")}: ${id}`);
             await this.refresh();
         } catch (err: any) { vscode.window.showErrorMessage("Deploy failed: " + err.message); }
+    }
+
+    /** Open a webview form with two fields (agent id + display name) pre-filled
+     *  with a version-suffix default, so the user can confirm both in one shot
+     *  on id collision. VSCode has no native two-input-box API, hence webview.
+     *  Resolves undefined on cancel; otherwise {idOverride?, nameOverride?}.
+     *  An empty / original id resolves with no idOverride (=> overwrite). */
+    private async promptCustomDeploy(meta: { id: string; name: string; version: string }): Promise<{ idOverride?: string; nameOverride?: string } | undefined> {
+        const digits = (meta.version || "").replace(/[^0-9]/g, "");
+        const suf = digits ? "v" + digits : "";
+        const defaultId = suf ? `${meta.id}.${suf}` : meta.id;
+        const defaultName = suf ? `${meta.name}${suf.toUpperCase()}` : meta.name;
+        return new Promise<{ idOverride?: string; nameOverride?: string } | undefined>((resolve) => {
+            const panel = vscode.window.createWebviewPanel(
+                "boosterMatch.customDeploy",
+                t("customDeployTitle"),
+                vscode.ViewColumn.Active,
+                { enableScripts: true },
+            );
+            let done = false;
+            const finish = (result: { idOverride?: string; nameOverride?: string } | undefined) => {
+                if (done) { return; }
+                done = true;
+                panel.dispose();
+                resolve(result);
+            };
+            panel.onDidDispose(() => finish(undefined));
+            panel.webview.onDidReceiveMessage((m: any) => {
+                if (m.type === "cancel") { finish(undefined); return; }
+                if (m.type === "submit") {
+                    const id = String(m.id || "").trim();
+                    const name = String(m.name || "").trim();
+                    const nameOverride = name && name !== meta.name ? name : undefined;
+                    if (!id || id === meta.id) {
+                        finish({ idOverride: undefined, nameOverride });
+                    } else {
+                        finish({ idOverride: id, nameOverride });
+                    }
+                }
+            });
+            panel.webview.html = this.customDeployHtml(meta, defaultId, defaultName, suf);
+        });
+    }
+
+    private customDeployHtml(meta: { id: string; name: string }, defaultId: string, defaultName: string, suf: string): string {
+        const esc = (s: string) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+        const hint = t("customDeployHint").replace("{id}", esc(meta.id)).replace("{suf}", suf ? "." + suf : "");
+        const invalidMsg = JSON.stringify(t("customDeployIdInvalid"));
+        return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);color:var(--vscode-foreground);padding:20px;margin:0}
+h2{margin:0 0 8px;font-weight:600;font-size:15px}
+.hint{font-size:12px;opacity:.8;margin-bottom:14px;line-height:1.5}
+.hint code{background:var(--vscode-textBlockQuote-background);padding:1px 5px;border-radius:3px;font-family:var(--vscode-editor-font-family)}
+label{display:block;font-size:11px;text-transform:uppercase;opacity:.7;margin:12px 0 4px;font-weight:600}
+input{width:100%;padding:7px 8px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border);border-radius:3px;font-size:13px;font-family:var(--vscode-editor-font-family);box-sizing:border-box}
+input:focus{outline:none;border-color:var(--vscode-focusBorder)}
+.err{font-size:11px;color:var(--vscode-errorForeground);min-height:14px;margin-top:3px}
+.actions{display:flex;justify-content:flex-end;gap:8px;margin-top:22px}
+button{padding:6px 18px;border:none;border-radius:3px;cursor:pointer;font-size:13px}
+.btn-primary{background:var(--vscode-button-background);color:var(--vscode-button-foreground);font-weight:600}
+.btn-primary:hover{background:var(--vscode-button-hoverBackground)}
+.btn-primary:disabled{opacity:.4;cursor:default}
+.btn-secondary{background:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground)}
+</style></head><body>
+<h2>${t("customDeployTitle")}</h2>
+<div class="hint">${hint}</div>
+<label for="fId">${t("customDeployIdLabel")}</label>
+<input id="fId" value="${esc(defaultId)}">
+<div class="err" id="fErr"></div>
+<label for="fName">${t("customDeployNameLabel")}</label>
+<input id="fName" value="${esc(defaultName)}">
+<div class="actions">
+<button class="btn-secondary" id="bCancel">${t("customDeployCancel")}</button>
+<button class="btn-primary" id="bOk">${t("customDeployOk")}</button>
+</div>
+<script>
+const vscode=acquireVsCodeApi();
+const idEl=document.getElementById('fId'),nameEl=document.getElementById('fName'),errEl=document.getElementById('fErr'),okBtn=document.getElementById('bOk'),cancelBtn=document.getElementById('bCancel');
+const RX=/^[a-zA-Z][a-zA-Z0-9.]*$/;
+function chk(){var v=idEl.value.trim();var ok=v===''||RX.test(v);errEl.textContent=ok?'':${invalidMsg};okBtn.disabled=!ok;return ok;}
+idEl.addEventListener('input',chk);
+cancelBtn.addEventListener('click',()=>vscode.postMessage({type:'cancel'}));
+okBtn.addEventListener('click',()=>{if(!chk())return;vscode.postMessage({type:'submit',id:idEl.value,name:nameEl.value});});
+window.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();if(!okBtn.disabled){okBtn.click();}}else if(e.key==='Escape'){cancelBtn.click();}});
+chk();
+idEl.focus();idEl.select();
+</script>
+</body></html>`;
     }
 
     /** If the selected agent is a local .agent file, deploy it to the container
@@ -483,7 +618,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         const agent = this.agents.find((a) => a.id === agentId);
         if (agent && agent.source === "file" && agent.path) {
             this.output.appendLine(`  Deploying local .agent file: ${agent.path}`);
-            return await deployAgentFile(agent.path);
+            return await deployAgentFile(agent.path, undefined, undefined, (s) => this.diagLine(s));
         }
         return agentId;
     }
@@ -495,17 +630,38 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         let team2Id = await this.ensureDeployed(this.selection.blue);
         if (team1Id === team2Id) {
             const cloneId = `${team2Id}.blue`;
-            await cloneAgent(team2Id, cloneId);
+            await cloneAgent(team2Id, cloneId, (s) => this.diagLine(s));
             team2Id = cloneId;
             await this.refresh();
         }
         return { team1Id, team2Id };
     }
 
+    /** Append a diagnostics line to the output channel and reveal it — the
+     *  forensics sink for the rename self-check during custom-id deploy/clone. */
+    private diagLine(s: string): void {
+        this.output.show(true);
+        this.output.appendLine(s);
+    }
+
+    /** Is the football3v3_runner run.py process still alive? */
+    private async runnerAlive(): Promise<boolean> {
+        try {
+            const out = await dockerExec("pgrep -f 'run.py.*--teams' 2>/dev/null", 4000);
+            return out.trim().length > 0;
+        } catch { return false; }
+    }
+
     private async restartRunnerWithTeams(team1: string, team2: string): Promise<void> {
         this.saveCurrentTeams(team1, team2);
         this.output.appendLine("  Stopping old runner...");
         await dockerExec("pkill -9 -f football3v3; pkill -9 -f 'run.py.*teams'; pkill -9 -f pyagent_x86; sleep 2", 10000).catch(() => {});
+        // Clean stale sandboxes leaked by previous crashed runs (keep team_1 /
+        // team_2 for the new run). /run is a tmpfs, so leaked sandboxes from
+        // crashed runs accumulate and can starve the next sandbox.create().
+        // Harmless when none exist. The real "robots don't move" root cause is
+        // on the Booster Studio side — handled by the restart hint, not here.
+        await dockerExec("find /run/3v3_runner -maxdepth 1 -mindepth 1 -type d ! -name team_1 ! -name team_2 -exec rm -rf {} + 2>/dev/null", 8000).catch(() => {});
         await dockerExec("rm -rf /sys/fs/cgroup/3v3_runner/team_1 /sys/fs/cgroup/3v3_runner/team_2 2>/dev/null", 5000).catch(() => {});
 
         // Wrapper just cds into the runner dir and execs run.py. pyagent's ROS2
@@ -563,6 +719,16 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
 
         for (let i = 0; i < 15; i++) {
             await new Promise(r => setTimeout(r, 5000));
+            // If run.py died, fail fast instead of waiting the full 75s. The
+            // usual root cause is on the Booster Studio side (stale injected
+            // runtime / ROS bridge), not something we can fix from inside the
+            // container — prompt the user to restart Booster Studio.
+            if (!await this.runnerAlive()) {
+                await this.dumpMatchStartDiagnostics("runner exited");
+                const msg = t("runnerDied");
+                this.output.appendLine("  " + msg);
+                throw new Error(msg);
+            }
             this.output.appendLine(`  Health ${i + 1}/15...`);
             try {
                 const h = await gameControlApi("/health", "GET", 5000);
@@ -571,7 +737,47 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
                 }
             } catch { /* wait */ }
         }
-        throw new Error("Runner not ready in 75s.");
+        await this.dumpMatchStartDiagnostics("not ready in 75s");
+        throw new Error(t("runnerNotReady"));
+    }
+
+    /** Dump match-start failure forensics to the output channel AND persist it
+     *  to ~/.booster-match-runner/match-start-failure.log (overwritten each
+     *  failure) so the user can find it even after a reload. Captures run.py
+     *  log tail, last /health response, sandbox dirs, and live processes at the
+     *  moment of failure — pure diagnostics, no root-cause assumption. */
+    private async dumpMatchStartDiagnostics(reason: string): Promise<void> {
+        const lines: string[] = [`--- diagnostics: ${reason} ---`];
+        try {
+            const log = await dockerExec("tail -40 /usr/local/booster_agent/football3v3_runner/football3v3-run.log 2>/dev/null", 5000);
+            lines.push("[run.py log tail]");
+            for (const l of log.split("\n").filter(Boolean)) { lines.push("  " + l); }
+        } catch { lines.push("[run.py log tail] <unavailable>"); }
+        try {
+            const h = await gameControlApi("/health", "GET", 5000);
+            lines.push(`[health] ${JSON.stringify(h)}`);
+        } catch { lines.push("[health] <unavailable>"); }
+        try {
+            const sb = await dockerExec("ls /run/3v3_runner/ 2>/dev/null", 4000);
+            const dirs = sb.split("\n").map((s) => s.trim()).filter(Boolean).join(", ");
+            lines.push(`[sandboxes] ${dirs || "<none>"}`);
+        } catch { lines.push("[sandboxes] <unavailable>"); }
+        try {
+            const ps = await dockerExec("pgrep -af 'run.py|pyagent|ros2 launch' 2>/dev/null | grep -v pgrep", 4000);
+            const psLines = ps.split("\n").map((s) => s.trim()).filter(Boolean);
+            lines.push("[processes]");
+            for (const l of psLines) { lines.push("  " + l); }
+            if (!psLines.length) { lines.push("  <none matching>"); }
+        } catch { lines.push("[processes] <none matching>"); }
+        lines.push("--- end diagnostics ---");
+        for (const l of lines) { this.output.appendLine("  " + l); }
+        try {
+            const dir = path.join(os.homedir(), ".booster-match-runner");
+            await fs.promises.mkdir(dir, { recursive: true });
+            const file = path.join(dir, "match-start-failure.log");
+            await fs.promises.writeFile(file, lines.join("\n") + "\n", "utf8");
+            this.output.appendLine(`  [diagnostics saved to ${file}]`);
+        } catch { /* best effort — output channel already has it */ }
     }
 
     private getEventsLogPath(): string {
@@ -829,7 +1035,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         const line = parseInt((out || "").trim(), 10);
         this.baseLineCount = Number.isFinite(line) && line > 0 ? line - 1 : 0;
         try {
-            this.currentEvents = await readNewEvents(this.eventsLogPath, this.baseLineCount);
+            this.currentEvents = dedupeByEventId(await readNewEvents(this.eventsLogPath, this.baseLineCount));
         } catch { this.currentEvents = []; }
     }
 
@@ -861,7 +1067,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             await this.recoverEventTracking();
             if (this.currentEvents.length) { this.postEventsToView(); }
         }
-        this.postMessage({ type: "status", status });
+        this.postMessage({ type: "status", status, teams: this.currentTeamsInfo() });
         this.lastStatus = status;
         if (status.isFinished && !this.finishEventAdded) {
             this.finishEventAdded = true;
@@ -949,6 +1155,8 @@ select{width:100%;padding:5px 8px;background:var(--vscode-dropdown-background);c
 <div class="vs">VS</div>
 <div class="st b"><div class="n" id="bn">Blue</div><div class="s" id="bs">0</div></div></div>
 <div class="tm"><span class="lab" id="lblStart">Start</span><span id="tStart">—</span></div>
+<div class="tm"><span class="lab" id="lblClock">Clock</span><span id="tClock">—</span></div>
+<div class="tm"><span class="lab" id="lblPlay">Play</span><span id="tPlay">—</span></div>
 <div class="tm"><span class="lab" id="lblEnd">End</span><span id="tEnd">—</span></div>
 </div>
 <div id="cwarn" class="cw" style="display:none"><span id="cwTxt">Container not running.</span><br><button class="btn" style="margin-top:6px" id="btnStartContainer" onclick="s('startContainer')">Start Container</button><div id="cwLoading" style="display:none;margin-top:8px"><span class="spin"></span> <span id="cwLoadingTxt">Starting container...</span></div></div>
@@ -968,13 +1176,14 @@ select{width:100%;padding:5px 8px;background:var(--vscode-dropdown-background);c
 <button class="btn s icb" style="flex:1" onclick="s('uploadAgent')" title="Upload Agent"><span class="ic">&#8682;</span><span class="lb" id="t_upload">Upload</span></button>
 <button class="btn s icb" style="flex:1" onclick="s('saveLog')" title="Save Log"><span class="ic">&#128190;</span><span class="lb" id="t_save">Save</span></button>
 <button class="btn s icb" style="flex:1" id="btnManageAgents" onclick="s('manageAgents')" title="Manage agents"><span class="ic">&#128203;</span><span class="lb" id="t_manageAgents">Manage</span></button>
+<button class="btn s icb" style="flex:1" onclick="s('diagnose')" title="Diagnose environment"><span class="ic">&#128269;</span><span class="lb" id="t_diagnose">Diagnose</span></button>
 </div></div>
 <div class="section"><div class="label" id="lblKeyEvents">Key Events</div><div class="ev" id="evList"><div class="empty">No events yet</div></div></div>
 <script>
 const v=acquireVsCodeApi();
 var panelState="idle";
 var startingMatch=false;
-var lastStatus=null,lastEvents=[];
+var lastStatus=null,lastEvents=[];var lastTeams={red:{id:"",name:""},blue:{id:"",name:""}};
 var I18N={lang:"en",msg:{score:"Score",teams:"Teams",actions:"Actions",keyEvents:"Key Events",start:"Start",end:"End",count:"Count",records:"Match records",noEvents:"No events yet",starting:"Starting…",containerUnreachable:"Container unreachable",containerNotRunning:"Container not running.",startContainer:"Start Container",startMatchUi:"Start Match + UI",startHeadless:"Start Headless",ui:"UI",refresh:"Refresh",upload:"Upload",save:"Save",loading:"Loading...",noAgents:"No agents",preparing:"Preparing…",red:"Red",blue:"Blue",manageAgents:"Manage",startingContainer:"Starting container…"},states:{playing:"Playing",ready:"Ready",set:"Set",finished:"Finished"},events:{}};
 function T(k){return I18N.msg[k]||k}
 function humanize(ty){return ty.split("_").map(function(w){return w?w.charAt(0).toUpperCase()+w.slice(1):w}).join(" ")}
@@ -999,10 +1208,13 @@ function applyLang(){
   setText("lblKeyEvents",T("keyEvents"));
   setText("lblStart",T("start"));
   setText("lblEnd",T("end"));
+  setText("lblClock",T("clock"));
+  setText("lblPlay",T("play"));
   setText("lblCount",T("count"));
   setText("cwTxt",T("containerNotRunning"));
   setText("btnStartContainer",T("startContainer"));
   setText("t_manageAgents",T("manageAgents"));
+  setText("t_diagnose",T("diagnose"));
   setText("cwLoadingTxt",T("startingContainer"));
   setText("t_b1",T("startMatchUi"));
   setText("t_b2",T("startHeadless"));
@@ -1022,7 +1234,7 @@ function applyLang(){
 window.addEventListener("message",function(e){var m=e.data;switch(m.type){
 case"i18n":I18N=m.bundle;applyLang();break;
 case"agents":ra(m.agents,m.selection,m.containerRunning);break;
-case"status":lastStatus=m.status;rs(m.status);break;
+case"status":lastStatus=m.status;if(m.teams){lastTeams=m.teams;}rs(m.status);break;
 case"matchReset":panelState="running";setScore(0,0);break;
 case"status_text":{var el=document.getElementById("tEnd");if(el)el.textContent=m.text;break}
 case"containerStarting":{var sb=document.getElementById("btnStartContainer"),ld=document.getElementById("cwLoading");if(m.starting){if(sb)sb.style.display="none";if(ld)ld.style.display="block";}else{if(sb)sb.style.display="";if(ld)ld.style.display="none";}break}
@@ -1061,7 +1273,7 @@ function ra(a,sel,cr){
 document.getElementById("cwarn").style.display=cr===false?"block":"none";
 document.getElementById("ts").style.opacity=cr===false?".4":"1";
 if(!a||!a.length){var na=T("noAgents");document.getElementById("rsel").innerHTML='<option value="">'+e(na)+'</option>';document.getElementById("bsel").innerHTML='<option value="">'+e(na)+'</option>';return;}
-var o=a.map(function(x){return'<option value="'+e(x.id)+'">'+e(x.name)+" ("+x.source+" · "+e(x.id)+")</option>"}).join("");
+var o=a.map(function(x){var lbl=e(x.name);if(x.version){lbl+=" v"+e(x.version);}lbl+=" ("+x.source+" · "+e(x.id)+")";return'<option value="'+e(x.id)+'">'+lbl+"</option>"}).join("");
 document.getElementById("rsel").innerHTML=o;document.getElementById("bsel").innerHTML=o;
 if(sel){
 document.getElementById("rsel").value=sel.red||"";document.getElementById("bsel").value=sel.blue||"";
@@ -1084,6 +1296,27 @@ else if(st.isFinished){endTxt=stateLabel("finished");}
 else if(active){endTxt=stateLabel("playing")+" · "+stateLabel(st.state);}
 else{endTxt="—";}
 document.getElementById("tEnd").textContent=endTxt;
+renderLive(st,active);
+}
+function humanizeCamel(c){return c?String(c).replace(/([A-Z])/g," $1").replace(/^./,function(x){return x.toUpperCase()}).trim():c;}
+function setPlayLabelP(c){return (I18N.setplays&&I18N.setplays[c])||humanizeCamel(c);}
+function stageLabelP(c){return (I18N.stages&&I18N.stages[c])||humanizeCamel(c);}
+function fmtClock(sec){if(sec==null||!isFinite(sec)||sec<0)return "--:--";var m=Math.floor(sec/60),s=Math.floor(sec%60);return String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");}
+function teamSpan(side){var t=side==="home"?lastTeams.red:lastTeams.blue;var nm=(t&&t.name)?t.name:(side==="home"?T("red"):T("blue"));var cl=side==="home"?"#e74c3c":"#3498db";return '<span style="color:'+cl+'">'+e(nm)+'</span>';}
+function setHTML(id,html){var el=document.getElementById(id);if(el)el.innerHTML=html;}
+function renderLive(st,active){
+var clk="—";
+if(active){
+if(st.elapsedSeconds!=null&&isFinite(st.elapsedSeconds)){clk=fmtClock(st.elapsedSeconds);if(st.timingStage&&st.timingStage!=="regulation"){clk+=" ("+stageLabelP(st.timingStage)+")";}}
+else{clk=stateLabel(st.state);}
+}
+setText("tClock",clk);
+var pl="—";
+if(st.stopped){pl=T("stopped");}
+else if(st.isFinished&&st.winner){pl=T("winner")+": "+teamSpan(st.winner);}
+else if(st.setPlay&&st.setPlay!=="noSetPlay"){pl=setPlayLabelP(st.setPlay);if(st.kickingSide){pl+=" · "+teamSpan(st.kickingSide);}}
+else if(active){pl=stateLabel(st.state);}
+setHTML("tPlay",pl);
 }
 function renderEvents(evs){
 var el=document.getElementById("evList");

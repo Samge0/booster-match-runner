@@ -25,6 +25,7 @@ A sidebar panel for **Booster Studio** that runs **3v3 robot soccer matches** be
 - **Start the sim container** from the panel if it isn't running (with a spinner while it boots).
 - **Optional auto-end** — set a max duration (s) and/or a lead-goal margin on the panel; `0` disables it, so the match ends only when the sim reports it finished.
 - **Resilient** — survives a Booster Studio window reload/reopen: the Red/Blue pickers restore the two teams of the in-progress match and the **End** button stays clickable.
+- **Diagnostics & forensics** — a **Diagnose** button lists running `ros2 launch` processes and stale sandboxes; if a match start fails, the failure scene (`run.py` log tail, `/health`, live processes) is auto-saved to `~/.booster-match-runner/match-start-failure.log`. Deleting an agent that's currently playing in a running match is blocked.
 
 ---
 
@@ -32,6 +33,7 @@ A sidebar panel for **Booster Studio** that runs **3v3 robot soccer matches** be
 
 | Plugin version | Booster Studio | sim image (default) | Notes |
 |---|---|---|---|
+| 0.2.2 | **1.9.10** | auto-detected (any tag) | Bot-freeze forensics logging + Diagnose button, mid-match delete guard, restart-Studio error hints |
 | 0.2.1 | **1.9.10** | auto-detected (any tag) | Reload-safe auto-end, tag-agnostic container detection, headless button-state fixes, settings-first config |
 | 0.2.0 | **1.9.10** | `virtual-robot:0.6.5-beta` | Duplicate-ID upload with custom id/name, agent manage/delete, reload-safe pickers |
 | 0.1.0 | **1.9.10** | `virtual-robot:0.6.5-beta` | i18n (EN/ZH), new icon, GitHub Actions release pipeline |
