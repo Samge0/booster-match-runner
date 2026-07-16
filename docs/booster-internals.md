@@ -10,9 +10,9 @@
 
 | 项 | 值 | 出处 |
 |---|---|---|
-| 仿真镜像（默认） | `booster-robotics-registry.cn-beijing.cr.aliyuncs.com/virtual-robot/virtual-robot:0.6.5-beta` | `package.json` → `boosterMatch.simImage` |
+| 仿真镜像（默认空，兜底匹配） | 留空 → 兜底 `virtual-robot/virtual-robot`（任意版本）；可填完整 image:tag 锁定版本 | `package.json` → `boosterMatch.simImage` |
 | Game Control 端口 | `38383`（容器内） | `boosterMatch.gameControlPort` |
-| 容器定位方式 | 显式 `containerName` > 按 `simImage` 自动 `docker ps --filter ancestor=<image>` 取第一个 > 缓存 | `src/docker.ts` `resolveContainer()` |
+| 容器定位方式 | 显式 `containerName` > 按 `simImage` 子串匹配（running 优先，tag 无关）> 兜底 `virtual-robot/virtual-robot` > 缓存 | `src/docker.ts` `resolveContainer()` |
 | 启动容器 | `docker start <name>` | `startSimContainer()` |
 
 > **关键点**：HTTP API 跑在**容器内** `127.0.0.1:38383`，宿主机访问不到。本插件所有 API 调用都是 `docker exec <container> bash -c "curl ..."` 走容器内部 curl。
@@ -97,7 +97,7 @@ events.jsonl 每行一个 JSON：`{ eventId, wallTime, type, actor:{side,teamNam
 
 **发现**（`src/agentManager.ts`）：
 - 容器内：`ls /opt/booster/.../extract` → 每个目录是一个 agent（id = 目录名）。
-- 宿主机：扫描 `projectsDir` + `hostAgentRoots`（深入一层工程目录 + 根目录下的 `.agent`）。
+- 宿主机：扫描 `hostAgentRoots`（深入一层工程目录 + 根目录下的 `.agent`）。
 - `.agent` 是 zip，读其中 `agent.json` 的 `id`（**id 必须与解压目录名一致**，否则 `run.py` 找不到）。
 
 **部署 `.agent`**（`deployAgentFile`）：
@@ -195,7 +195,7 @@ webview 是 `matchRunnerProvider.getHtml()` 里一段自包含 HTML+JS 字符串
 
 - **改默认对手 / 端口 / 镜像** → `package.json` 的 `contributes.configuration`。
 - **加新的事件类型显示** → `src/eventReader.ts` 的 `KEY_EVENTS`（英文标签自动 humanize，中文加到 `src/i18n.ts` `EVENT_LABELS.zh`）。
-- **自动结束阈值**（超时秒数 / 领先球数）→ 现由面板传入，默认 `0 = 不启用`；逻辑在 `matchRunnerProvider.ts` `monitorMatch(endMatchFn, timeoutSeconds, leadGoals)`，领先判定为双向 `Math.abs(home-away) >= leadGoals`。
+- **自动结束阈值**（超时秒数 / 领先球数）→ 由设置项 `boosterMatch.matchLength` / `boosterMatch.leadGoals` 配置，默认 `0 = 不启用`；逻辑在 `matchRunnerProvider.ts` `monitorMatch(endMatchFn, timeoutSeconds, leadGoals)`，领先判定为双向 `Math.abs(home-away) >= leadGoals`。
 - **换语言/加语言** → `src/i18n.ts`（`Lang` 类型 + 字典 + webview 默认字典）。
 - **改记录存储位置/格式** → `recordsDir()`、`buildMatchZip()`、`exportRecordsCsv()`。
 

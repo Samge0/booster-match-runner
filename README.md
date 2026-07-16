@@ -32,6 +32,7 @@ A sidebar panel for **Booster Studio** that runs **3v3 robot soccer matches** be
 
 | Plugin version | Booster Studio | sim image (default) | Notes |
 |---|---|---|---|
+| 0.2.1 | **1.9.10** | auto-detected (any tag) | Reload-safe auto-end, tag-agnostic container detection, headless button-state fixes, settings-first config |
 | 0.2.0 | **1.9.10** | `virtual-robot:0.6.5-beta` | Duplicate-ID upload with custom id/name, agent manage/delete, reload-safe pickers |
 | 0.1.0 | **1.9.10** | `virtual-robot:0.6.5-beta` | i18n (EN/ZH), new icon, GitHub Actions release pipeline |
 
@@ -96,11 +97,12 @@ Open Booster Studio Settings and search for `boosterMatch`:
 | Setting | Default | Description |
 |---|---|---|
 | `boosterMatch.containerName` | `""` | Docker container name. If empty, auto-detected from `simImage`. |
-| `boosterMatch.simImage` | `booster-robotics-registry.cn-beijing.cr.aliyuncs.com/virtual-robot/virtual-robot:0.6.5-beta` | Image used to locate/start the sim container. |
+| `boosterMatch.simImage` | `""` | Optional image name (substring match) to auto-detect the sim container. Empty falls back to `virtual-robot/virtual-robot` (any version); set full image:tag to pin a version. |
 | `boosterMatch.gameControlPort` | `38383` | Game-control HTTP API port **inside** the container. |
 | `boosterMatch.defaultOpponent` | `com.booster.default3v3ai` | Default Blue-team agent id. |
-| `boosterMatch.projectsDir` | `""` | Host dir of Booster Studio agent projects (scanned for `.agent`). |
-| `boosterMatch.hostAgentRoots` | `[]` | Extra host dirs to scan for `.agent` files. |
+| `boosterMatch.matchLength` | `0` | Auto-end each match after this many seconds. `0` = disabled (run until the sim finishes or you click End). |
+| `boosterMatch.leadGoals` | `0` | Auto-end once one team leads by this many goals (either side). `0` = disabled. |
+| `boosterMatch.hostAgentRoots` | `[]` | Host dirs to scan for `.agent` files (one level into each root + root-level `.agent`). |
 
 ---
 
