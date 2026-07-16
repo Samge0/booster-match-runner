@@ -29,11 +29,13 @@ export async function discoverContainerAgents(): Promise<AgentInfo[]> {
         for (const dir of dirs) {
             const id = dir.trim();
             if (!id) continue;
+            const meta = await readContainerAgentMeta(id);
             agents.push({
                 id,
-                name: await readContainerAgentName(id),
+                name: meta.name,
                 source: "container",
                 path: `${CONTAINER_AGENT_ROOT}/${id}`,
+                version: meta.version,
             });
         }
         return agents;
@@ -42,15 +44,17 @@ export async function discoverContainerAgents(): Promise<AgentInfo[]> {
     }
 }
 
-/** Read an agent's display name from its agent.json inside the container.
- *  Falls back to the id (directory name) if agent.json is unreadable. */
-async function readContainerAgentName(id: string): Promise<string> {
+/** Read an agent's display name + version from its agent.json inside the
+ *  container. Falls back to the id (directory name) if agent.json is unreadable. */
+async function readContainerAgentMeta(id: string): Promise<{ name: string; version: string }> {
     try {
         const out = await dockerExec(`cat ${CONTAINER_AGENT_ROOT}/${id}/agent.json 2>/dev/null`, 5000);
         const parsed = JSON.parse(out.trim());
-        return parsed.name?.en || parsed.name || id;
+        const name = parsed.name?.en || parsed.name || id;
+        const version = typeof parsed.version === "string" ? parsed.version : "";
+        return { name, version };
     } catch {
-        return id;
+        return { name: id, version: "" };
     }
 }
 

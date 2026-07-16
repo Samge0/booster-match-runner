@@ -9,7 +9,7 @@ import { getAllAgents, readAgentFileMeta, containerAgentExists } from "./agentMa
 import { getMatchStatus, startMatch as apiStartMatch, endMatch as apiEndMatch } from "./matchRunner";
 import { isContainerRunning, dockerExec, cloneAgent, deployAgentFile, gameControlApi, dockerExecDetached, startSimContainer } from "./docker";
 import { AgentInfo, MatchStatus } from "./types";
-import { getBaseLineCount, readNewEvents, ParsedEvent, shellQuote } from "./eventReader";
+import { getBaseLineCount, readNewEvents, dedupeByEventId, ParsedEvent, shellQuote } from "./eventReader";
 import { initLang, toggleLang, getI18nBundle, t, eventLabel, getLang } from "./i18n";
 import AdmZip from "adm-zip";
 import * as path from "path";
@@ -127,7 +127,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
     async updateStatus() {
         try {
             const status = await getMatchStatus();
-            this.postMessage({ type: "status", status });
+            this.postMessage({ type: "status", status, teams: this.currentTeamsInfo() });
         } catch {
             this.postMessage({ type: "status", status: null });
         }
@@ -151,6 +151,23 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             }
         } catch { /* not present yet */ }
         return null;
+    }
+
+    /** Resolve the current match's team display names from current-teams.json
+     *  (ids mapped to names via the agent list). Shipped to the webview so
+     *  winner/kickingSide show the names of the teams actually in THAT match,
+     *  decoupled from the team dropdown — which the user may re-point after the
+     *  match ended. Falls back to the raw id when the agent name is unknown. */
+    private currentTeamsInfo(): { red: { id: string; name: string }; blue: { id: string; name: string } } {
+        const t = this.loadCurrentTeams();
+        const resolve = (id: string): { id: string; name: string } => {
+            const found = this.agents.find((a) => a.id === id);
+            return { id, name: found ? found.name : id };
+        };
+        if (!t) {
+            return { red: { id: "", name: "" }, blue: { id: "", name: "" } };
+        }
+        return { red: resolve(t.red), blue: resolve(t.blue) };
     }
 
     private async handleMessage(msg: any) {
@@ -234,7 +251,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             return;
         }
         const items = this.agents.map((a) => ({
-            label: a.name,
+            label: a.version ? `${a.name} v${a.version}` : a.name,
             description: `(${a.source} · ${a.id})`,
             detail: a.id,
             agentId: a.id,
@@ -829,7 +846,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         const line = parseInt((out || "").trim(), 10);
         this.baseLineCount = Number.isFinite(line) && line > 0 ? line - 1 : 0;
         try {
-            this.currentEvents = await readNewEvents(this.eventsLogPath, this.baseLineCount);
+            this.currentEvents = dedupeByEventId(await readNewEvents(this.eventsLogPath, this.baseLineCount));
         } catch { this.currentEvents = []; }
     }
 
@@ -861,7 +878,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             await this.recoverEventTracking();
             if (this.currentEvents.length) { this.postEventsToView(); }
         }
-        this.postMessage({ type: "status", status });
+        this.postMessage({ type: "status", status, teams: this.currentTeamsInfo() });
         this.lastStatus = status;
         if (status.isFinished && !this.finishEventAdded) {
             this.finishEventAdded = true;
@@ -949,6 +966,8 @@ select{width:100%;padding:5px 8px;background:var(--vscode-dropdown-background);c
 <div class="vs">VS</div>
 <div class="st b"><div class="n" id="bn">Blue</div><div class="s" id="bs">0</div></div></div>
 <div class="tm"><span class="lab" id="lblStart">Start</span><span id="tStart">—</span></div>
+<div class="tm"><span class="lab" id="lblClock">Clock</span><span id="tClock">—</span></div>
+<div class="tm"><span class="lab" id="lblPlay">Play</span><span id="tPlay">—</span></div>
 <div class="tm"><span class="lab" id="lblEnd">End</span><span id="tEnd">—</span></div>
 </div>
 <div id="cwarn" class="cw" style="display:none"><span id="cwTxt">Container not running.</span><br><button class="btn" style="margin-top:6px" id="btnStartContainer" onclick="s('startContainer')">Start Container</button><div id="cwLoading" style="display:none;margin-top:8px"><span class="spin"></span> <span id="cwLoadingTxt">Starting container...</span></div></div>
@@ -974,7 +993,7 @@ select{width:100%;padding:5px 8px;background:var(--vscode-dropdown-background);c
 const v=acquireVsCodeApi();
 var panelState="idle";
 var startingMatch=false;
-var lastStatus=null,lastEvents=[];
+var lastStatus=null,lastEvents=[];var lastTeams={red:{id:"",name:""},blue:{id:"",name:""}};
 var I18N={lang:"en",msg:{score:"Score",teams:"Teams",actions:"Actions",keyEvents:"Key Events",start:"Start",end:"End",count:"Count",records:"Match records",noEvents:"No events yet",starting:"Starting…",containerUnreachable:"Container unreachable",containerNotRunning:"Container not running.",startContainer:"Start Container",startMatchUi:"Start Match + UI",startHeadless:"Start Headless",ui:"UI",refresh:"Refresh",upload:"Upload",save:"Save",loading:"Loading...",noAgents:"No agents",preparing:"Preparing…",red:"Red",blue:"Blue",manageAgents:"Manage",startingContainer:"Starting container…"},states:{playing:"Playing",ready:"Ready",set:"Set",finished:"Finished"},events:{}};
 function T(k){return I18N.msg[k]||k}
 function humanize(ty){return ty.split("_").map(function(w){return w?w.charAt(0).toUpperCase()+w.slice(1):w}).join(" ")}
@@ -999,6 +1018,8 @@ function applyLang(){
   setText("lblKeyEvents",T("keyEvents"));
   setText("lblStart",T("start"));
   setText("lblEnd",T("end"));
+  setText("lblClock",T("clock"));
+  setText("lblPlay",T("play"));
   setText("lblCount",T("count"));
   setText("cwTxt",T("containerNotRunning"));
   setText("btnStartContainer",T("startContainer"));
@@ -1022,7 +1043,7 @@ function applyLang(){
 window.addEventListener("message",function(e){var m=e.data;switch(m.type){
 case"i18n":I18N=m.bundle;applyLang();break;
 case"agents":ra(m.agents,m.selection,m.containerRunning);break;
-case"status":lastStatus=m.status;rs(m.status);break;
+case"status":lastStatus=m.status;if(m.teams){lastTeams=m.teams;}rs(m.status);break;
 case"matchReset":panelState="running";setScore(0,0);break;
 case"status_text":{var el=document.getElementById("tEnd");if(el)el.textContent=m.text;break}
 case"containerStarting":{var sb=document.getElementById("btnStartContainer"),ld=document.getElementById("cwLoading");if(m.starting){if(sb)sb.style.display="none";if(ld)ld.style.display="block";}else{if(sb)sb.style.display="";if(ld)ld.style.display="none";}break}
@@ -1061,7 +1082,7 @@ function ra(a,sel,cr){
 document.getElementById("cwarn").style.display=cr===false?"block":"none";
 document.getElementById("ts").style.opacity=cr===false?".4":"1";
 if(!a||!a.length){var na=T("noAgents");document.getElementById("rsel").innerHTML='<option value="">'+e(na)+'</option>';document.getElementById("bsel").innerHTML='<option value="">'+e(na)+'</option>';return;}
-var o=a.map(function(x){return'<option value="'+e(x.id)+'">'+e(x.name)+" ("+x.source+" · "+e(x.id)+")</option>"}).join("");
+var o=a.map(function(x){var lbl=e(x.name);if(x.version){lbl+=" v"+e(x.version);}lbl+=" ("+x.source+" · "+e(x.id)+")";return'<option value="'+e(x.id)+'">'+lbl+"</option>"}).join("");
 document.getElementById("rsel").innerHTML=o;document.getElementById("bsel").innerHTML=o;
 if(sel){
 document.getElementById("rsel").value=sel.red||"";document.getElementById("bsel").value=sel.blue||"";
@@ -1084,6 +1105,27 @@ else if(st.isFinished){endTxt=stateLabel("finished");}
 else if(active){endTxt=stateLabel("playing")+" · "+stateLabel(st.state);}
 else{endTxt="—";}
 document.getElementById("tEnd").textContent=endTxt;
+renderLive(st,active);
+}
+function humanizeCamel(c){return c?String(c).replace(/([A-Z])/g," $1").replace(/^./,function(x){return x.toUpperCase()}).trim():c;}
+function setPlayLabelP(c){return (I18N.setplays&&I18N.setplays[c])||humanizeCamel(c);}
+function stageLabelP(c){return (I18N.stages&&I18N.stages[c])||humanizeCamel(c);}
+function fmtClock(sec){if(sec==null||!isFinite(sec)||sec<0)return "--:--";var m=Math.floor(sec/60),s=Math.floor(sec%60);return String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");}
+function teamSpan(side){var t=side==="home"?lastTeams.red:lastTeams.blue;var nm=(t&&t.name)?t.name:(side==="home"?T("red"):T("blue"));var cl=side==="home"?"#e74c3c":"#3498db";return '<span style="color:'+cl+'">'+e(nm)+'</span>';}
+function setHTML(id,html){var el=document.getElementById(id);if(el)el.innerHTML=html;}
+function renderLive(st,active){
+var clk="—";
+if(active){
+if(st.elapsedSeconds!=null&&isFinite(st.elapsedSeconds)){clk=fmtClock(st.elapsedSeconds);if(st.timingStage&&st.timingStage!=="regulation"){clk+=" ("+stageLabelP(st.timingStage)+")";}}
+else{clk=stateLabel(st.state);}
+}
+setText("tClock",clk);
+var pl="—";
+if(st.stopped){pl=T("stopped");}
+else if(st.isFinished&&st.winner){pl=T("winner")+": "+teamSpan(st.winner);}
+else if(st.setPlay&&st.setPlay!=="noSetPlay"){pl=setPlayLabelP(st.setPlay);if(st.kickingSide){pl+=" · "+teamSpan(st.kickingSide);}}
+else if(active){pl=stateLabel(st.state);}
+setHTML("tPlay",pl);
 }
 function renderEvents(evs){
 var el=document.getElementById("evList");

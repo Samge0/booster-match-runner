@@ -48,6 +48,11 @@ const MESSAGES: Record<Lang, Record<string, string>> = {
         manageAgentsHint: "Select an agent to delete (Esc to cancel)",
         simBlockedHeadless: "Cannot open the simulator UI during a headless match: it resets game-control and would interrupt the running match. Use 'Start Match + UI' instead, or End the headless match first.",
         settings: "Settings",
+        clock: "Clock",
+        play: "Play",
+        stopped: "Stopped",
+        winner: "Winner",
+        noSetPlay: "Open play",
     },
     zh: {
         score: "比分",
@@ -82,7 +87,35 @@ const MESSAGES: Record<Lang, Record<string, string>> = {
         manageAgentsHint: "选择要删除的 Agent（按 Esc 取消）",
         simBlockedHeadless: "无头比赛进行中无法打开可视化 UI：会重置 game-control 并中断当前比赛。请改用「Start Match + UI」，或先结束无头比赛。",
         settings: "设置",
+        clock: "时钟",
+        play: "局面",
+        stopped: "已停止",
+        winner: "胜方",
+        noSetPlay: "常规",
     },
+};
+
+/** Set-play type labels. Codes are camelCase from the sim's GameControl state
+ *  (e.g. "noSetPlay", "throwIn", "cornerKick"). English falls back to
+ *  humanizeCamel(), so only Chinese is maintained here. */
+const SETPLAY_LABELS: Record<Lang, Record<string, string>> = {
+    en: {},
+    zh: {
+        noSetPlay: "常规",
+        directFreeKick: "直接任意球",
+        indirectFreeKick: "间接任意球",
+        penaltyKick: "点球",
+        throwIn: "界外球",
+        goalKick: "球门球",
+        cornerKick: "角球",
+        droppedBall: "坠球",
+    },
+};
+
+/** Timing-stage labels (game.timingStage / timing.stage). */
+const STAGE_LABELS: Record<Lang, Record<string, string>> = {
+    en: {},
+    zh: { regulation: "常规", overtime: "加时", shootout: "点球大战" },
 };
 
 /** Match state labels. */
@@ -152,9 +185,27 @@ export function eventLabel(type: string): string {
     return EVENT_LABELS[currentLang][type] ?? humanizeType(type);
 }
 
+/** Set-play label for a camelCase code (e.g. "throwIn" -> "界外球" / "Throw In"). */
+export function setPlayLabel(code: string): string {
+    return SETPLAY_LABELS[currentLang][code] ?? SETPLAY_LABELS.en[code] ?? humanizeCamel(code);
+}
+
+/** Timing-stage label for a code (e.g. "overtime" -> "加时" / "Overtime"). */
+export function stageLabel(code: string): string {
+    return STAGE_LABELS[currentLang][code] ?? STAGE_LABELS.en[code] ?? humanizeCamel(code);
+}
+
 /** snake_case -> "Title Case" (e.g. goal_disallowed_indirect -> "Goal Disallowed Indirect"). */
 export function humanizeType(type: string): string {
     return type.split("_").map((w) => w ? w[0].toUpperCase() + w.slice(1) : w).join(" ");
+}
+
+/** camelCase -> "Title Case" (e.g. noSetPlay -> "No Set Play", throwIn -> "Throw In"). */
+export function humanizeCamel(code: string): string {
+    return code
+        .replace(/([A-Z])/g, " $1")
+        .replace(/^./, (c) => c.toUpperCase())
+        .trim();
 }
 
 export interface I18nBundle {
@@ -162,6 +213,8 @@ export interface I18nBundle {
     msg: Record<string, string>;
     states: Record<string, string>;
     events: Record<string, string>;
+    setplays: Record<string, string>;
+    stages: Record<string, string>;
 }
 
 /** Build the bundle shipped to the webview so its inline JS can translate. */
@@ -171,5 +224,7 @@ export function getI18nBundle(): I18nBundle {
         msg: MESSAGES[currentLang],
         states: STATE_LABELS[currentLang],
         events: EVENT_LABELS[currentLang],
+        setplays: SETPLAY_LABELS[currentLang],
+        stages: STAGE_LABELS[currentLang],
     };
 }

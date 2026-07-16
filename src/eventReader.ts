@@ -81,6 +81,21 @@ export function parseEventsChunk(text: string): ParsedEvent[] {
     return out;
 }
 
+/** De-duplicate events by eventId, keeping the first occurrence. The sim's
+ *  events.jsonl occasionally contains repeated lines for the same eventId
+ *  (observed: the same eventId written 2–3×), so without this the panel would
+ *  show duplicate rows. Events without an eventId are dropped (can't dedupe). */
+export function dedupeByEventId(events: ParsedEvent[]): ParsedEvent[] {
+    const seen = new Set<string>();
+    const out: ParsedEvent[] = [];
+    for (const ev of events) {
+        if (!ev.eventId || seen.has(ev.eventId)) { continue; }
+        seen.add(ev.eventId);
+        out.push(ev);
+    }
+    return out;
+}
+
 export function shellQuote(s: string): string {
     return "'" + String(s).replace(/'/g, "'\\''") + "'";
 }

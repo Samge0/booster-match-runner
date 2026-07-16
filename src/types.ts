@@ -28,6 +28,26 @@ export interface MatchStatus {
     isFinished: boolean;
     startedAtWallTime: number | null;   // match start Unix seconds; null before kick-off
     endedAtWallTime: number | null;     // match end Unix seconds; null until finished
+    /** Seconds remaining in the current timing stage (regulation/overtime),
+     *  straight from the sim's GameControl state. null when not reported. */
+    timeRemaining: number | null;
+    /** Match-internal elapsed time counting UP (0 -> duration), derived from
+     *  timeRemaining so the panel matches the simulator UI's clock direction.
+     *  null when the inputs to derive it are missing. */
+    elapsedSeconds: number | null;
+    /** Current set-play type as a camelCase code, e.g. "noSetPlay",
+     *  "throwIn", "cornerKick", "penaltyKick". "" if not reported. */
+    setPlay: string;
+    /** Which side has ball rights during a set play, or null. */
+    kickingSide: "home" | "away" | null;
+    /** Timing stage code: "regulation" | "overtime" | ... "" if not reported. */
+    timingStage: string;
+    /** True when the referee has stopped play (game-control stopped flag). */
+    stopped: boolean;
+    /** Winning side once finished, or null. */
+    winner: "home" | "away" | null;
+    /** Sim-reported match end reason code, e.g. "operator_finish". "" if none. */
+    endReason: string;
 }
 
 export interface MatchConfig {
