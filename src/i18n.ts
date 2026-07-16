@@ -46,6 +46,7 @@ const MESSAGES: Record<Lang, Record<string, string>> = {
         confirmDelete: "Delete this agent? This cannot be undone.",
         manageAgents: "Manage",
         manageAgentsHint: "Select an agent to delete (Esc to cancel)",
+        simBlockedHeadless: "Cannot open the simulator UI during a headless match: it resets game-control and would interrupt the running match. Use 'Start Match + UI' instead, or End the headless match first.",
         settings: "Settings",
     },
     zh: {
@@ -79,6 +80,7 @@ const MESSAGES: Record<Lang, Record<string, string>> = {
         confirmDelete: "确认删除该 Agent？此操作不可撤销。",
         manageAgents: "管理",
         manageAgentsHint: "选择要删除的 Agent（按 Esc 取消）",
+        simBlockedHeadless: "无头比赛进行中无法打开可视化 UI：会重置 game-control 并中断当前比赛。请改用「Start Match + UI」，或先结束无头比赛。",
         settings: "设置",
     },
 };

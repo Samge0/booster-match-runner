@@ -55,6 +55,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
     private finishEventAdded = false;
     private pollTimer: ReturnType<typeof setInterval> | undefined;
     private matchStartedAt: number | null = null;
+    private currentMode: MatchMode = MODE_HEADLESS;
     private output: vscode.OutputChannel;
 
     constructor(private readonly context: vscode.ExtensionContext) {
@@ -78,7 +79,9 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             const active = status.state === "playing" || status.state === "ready" || status.state === "set";
             if (active && !this.isRunning) {
                 this.isRunning = true;
-                this.postMessage({ type: "matchActive" });
+                const cur = this.loadCurrentTeams();
+                if (cur) { this.currentMode = cur.mode; }
+                this.postMessage({ type: "matchActive", mode: this.currentMode });
                 await this.recoverEventTracking();
             }
         } catch { /* status unreachable */ }
@@ -134,14 +137,16 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         try {
             const dir = path.join(os.homedir(), ".booster-match-runner");
             fs.mkdirSync(dir, { recursive: true });
-            fs.writeFileSync(path.join(dir, "current-teams.json"), JSON.stringify({ red, blue, savedAt: Date.now() }, null, 2), "utf8");
+            fs.writeFileSync(path.join(dir, "current-teams.json"), JSON.stringify({ red, blue, mode: this.currentMode, savedAt: Date.now() }, null, 2), "utf8");
         } catch { /* best effort */ }
     }
 
-    private loadCurrentTeams(): { red: string; blue: string } | null {
+    private loadCurrentTeams(): { red: string; blue: string; mode: MatchMode } | null {
         try {
             const d = JSON.parse(fs.readFileSync(path.join(os.homedir(), ".booster-match-runner", "current-teams.json"), "utf8"));
-            if (d && d.red && d.blue) { return { red: String(d.red), blue: String(d.blue) }; }
+            if (d && d.red && d.blue) {
+                return { red: String(d.red), blue: String(d.blue), mode: d.mode === MODE_VISUAL ? MODE_VISUAL : MODE_HEADLESS };
+            }
         } catch { /* not present yet */ }
         return null;
     }
@@ -259,6 +264,13 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
     }
 
     async openSimulator() {
+        // Opening the simulator UI invokes booster.agent.run, which resets
+        // game-control and interrupts a running headless match. Block it while
+        // a headless match is in progress; visual mode owns its own UI window.
+        if (this.isRunning && this.currentMode === MODE_HEADLESS) {
+            vscode.window.showWarningMessage(t("simBlockedHeadless"));
+            return;
+        }
         for (const cmd of ["booster.virtualRobot.openSimulatorInAuxiliaryWindow", "booster.agent.run"]) {
             try { await vscode.commands.executeCommand(cmd); return; }
             catch { /* try next */ }
@@ -270,6 +282,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         const cfg = vscode.workspace.getConfiguration("boosterMatch");
         const timeout = cfg.get<number>("matchLength", 0);
         const lead = cfg.get<number>("leadGoals", 0);
+        this.currentMode = MODE_VISUAL;
         if (!(await this.checkNotRunning())) { return; }
         if (!this.selection.red || !this.selection.blue) {
             vscode.window.showWarningMessage("Select agents for both teams."); return;
@@ -289,7 +302,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             await this.restartRunnerWithTeams(team1Id, team2Id);
             this.postMessage({ type: "status_text", text: "Starting match!" });
             await apiStartMatch();
-            this.postMessage({ type: "matchStarted", redName, blueName });
+            this.postMessage({ type: "matchStarted", redName, blueName, mode: this.currentMode });
             await this.monitorMatch(apiEndMatch, timeout, lead);
             await this.autoSaveRecord(MODE_VISUAL);
         } catch (err: any) {
@@ -305,6 +318,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         const cfg = vscode.workspace.getConfiguration("boosterMatch");
         const timeout = cfg.get<number>("matchLength", 0);
         const lead = cfg.get<number>("leadGoals", 0);
+        this.currentMode = MODE_HEADLESS;
         if (!(await this.checkNotRunning())) { return; }
         if (!this.selection.red || !this.selection.blue) {
             vscode.window.showWarningMessage("Select agents for both teams."); return;
@@ -318,11 +332,12 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
                 this.postMessage({ type: "batchProgress", current: i + 1, total: count });
                 this.output.appendLine(`\n--- Match ${i + 1}/${count} ---`);
                 await this.resetEventTracking();
-                this.postMessage({ type: "matchStarted", redName: team1Id, blueName: team2Id });
+                this.postMessage({ type: "matchStarted", redName: team1Id, blueName: team2Id, mode: this.currentMode });
                 await this.restartRunnerWithTeams(team1Id, team2Id);
                 await apiStartMatch();
                 await this.monitorMatch(apiEndMatch, timeout, lead);
                 await this.autoSaveRecord(MODE_HEADLESS);
+                if (!this.isRunning) { break; }
                 if (i < count - 1) {
                     this.output.appendLine("  Ending match and cleaning up before next...");
                     try { await apiEndMatch(); } catch { /* already ended */ }
@@ -341,6 +356,12 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
     private async monitorMatch(endMatchFn: () => Promise<void>, timeoutSeconds = 0, leadGoals = 0) {
         const startTime = Date.now();
         let lastScore = "";
+        // Count consecutive polls where the match is not actually playing.
+        // If the match is interrupted externally (e.g. opening the simulator UI
+        // during a headless match resets game-control back to "initial"), the
+        // state gets stuck and isFinished never becomes true — without this
+        // guard the loop would spin forever and the panel could not be ended.
+        let staleCount = 0;
         while (this.isRunning) {
             const elapsed = (Date.now() - startTime) / 1000;
             if (timeoutSeconds > 0 && elapsed > timeoutSeconds) { await endMatchFn(); break; }
@@ -360,12 +381,25 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
                 this.output.appendLine(`\n=== FINISHED: ${sk} ===\n`);
                 break;
             }
+            // "initial" only appears before kickoff or after a hard reset; a match
+            // in play never returns to it. Stuck there for ~15s => interrupted.
+            if (status.state === "initial") {
+                if (++staleCount >= 5) {
+                    this.output.appendLine(`\n=== INTERRUPTED: match disappeared (state=initial) ===\n`);
+                    break;
+                }
+            } else { staleCount = 0; }
             if (leadGoals > 0 && Math.abs(status.score.home - status.score.away) >= leadGoals) { await endMatchFn(); break; }
             await new Promise(r => setTimeout(r, 3000));
         }
     }
 
     async endMatch() {
+        // Force-unlock the panel first so the UI recovers even if the API call
+        // no-ops (e.g. match already reset/disappeared). This also stops any
+        // running monitorMatch loop and batch via the isRunning flag.
+        this.isRunning = false;
+        this.postMessage({ type: "matchEnded" });
         try { await apiEndMatch(); }
         catch { /* ignore */ }
     }
@@ -871,7 +905,7 @@ select{width:100%;padding:5px 8px;background:var(--vscode-dropdown-background);c
 <button class="btn" id="b1" onclick="sendStart('startVisual')">&#127944; <span id="t_b1">Start Match + UI</span></button>
 <button class="btn s" id="b2" onclick="sendStart('startMatch')">&#9881; <span id="t_b2">Start Headless</span></button>
 <div style="display:flex;gap:4px;margin-top:4px">
-<button class="btn s" style="flex:1" onclick="s('openSim')">&#128064; <span id="t_openSim">UI</span></button>
+<button class="btn s" style="flex:1" id="bSim" onclick="s('openSim')">&#128064; <span id="t_openSim">UI</span></button>
 <button class="btn s" style="flex:1" id="b3" onclick="s('endMatch')" disabled>&#9940; <span id="t_b3">End</span></button></div></div>
 <div class="section"><div class="label" id="lblActions">Actions</div>
 <div style="display:flex;gap:4px">
@@ -944,6 +978,7 @@ case"matchStarted":
   document.getElementById("tStart").textContent=T("starting");
   document.getElementById("tEnd").textContent=T("starting");
   d("b1",1);d("b2",1);d("b3",0);
+  d("bSim",m.mode==="headless"?1:0);
   document.getElementById("rn").textContent=m.redName||"Red";
   document.getElementById("bn").textContent=m.blueName||"Blue";
   renderEvents([]);
@@ -951,10 +986,12 @@ case"matchStarted":
 case"matchActive":
   panelState="running";
   d("b1",1);d("b2",1);d("b3",0);
+  d("bSim",m.mode==="headless"?1:0);
   break;
 case"matchEnded":
   panelState="finished";
   d("b1",0);d("b2",0);d("b3",1);
+  d("bSim",0);
   {var pg0=document.getElementById("progress");if(pg0)pg0.textContent="";}
   break;
 }});
@@ -977,7 +1014,7 @@ function rs(st){
 if(!st){document.getElementById("tEnd").textContent=T("containerUnreachable");return;}
 var active=st.state==="playing"||st.state==="ready"||st.state==="set";
 if(panelState==="idle"){panelState=st.isFinished?"finished":(active?"running":"idle");}
-if(st.isFinished){panelState="finished";d("b1",0);d("b2",0);d("b3",1);}
+if(st.isFinished){panelState="finished";d("b1",0);d("b2",0);d("b3",1);d("bSim",0);}
 var updateScore=panelState!=="finished"||st.isFinished;
 if(updateScore){setScore(st.score.home,st.score.away);}
 document.getElementById("tStart").textContent=st.startedAtWallTime?fmtTime(st.startedAtWallTime,true):(active?T("preparing"):"—");
