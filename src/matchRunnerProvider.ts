@@ -189,6 +189,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             case "uploadAgent": await this.uploadAgentFile(); break;
             case "startContainer": await this.startContainer(); break;
             case "manageAgents": await this.manageAgents(); break;
+            case "diagnose": await this.diagnoseEnvironment(); break;
             case "saveLog": await this.saveLog(); break;
             case "showRecords": await this.showRecords(); break;
             case "openSettings": await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:samge.booster-match-runner"); break;
@@ -266,6 +267,29 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         });
         if (!pick) { return; }
         await this.deleteAgent(pick.agentId);
+    }
+
+    /** Read-only environment diagnosis: dump running ros2 launch processes and
+     *  accumulated historical sandboxes to the output channel so the user can
+     *  inspect the container state when a match won't start cleanly. */
+    private async diagnoseEnvironment(): Promise<void> {
+        this.output.show(true);
+        this.output.appendLine(t("diagTitle"));
+        try {
+            const out = await dockerExec("pgrep -af 'ros2 launch' 2>/dev/null | grep -v pgrep", 5000);
+            const lines = out.split("\n").map((s) => s.trim()).filter(Boolean);
+            this.output.appendLine(`[${t("diagRos2")}] ${lines.length}`);
+            for (const l of lines) { this.output.appendLine("  • " + l); }
+        } catch { this.output.appendLine(`[${t("diagRos2")}] <unavailable>`); }
+        try {
+            const out = await dockerExec("ls /run/3v3_runner/ 2>/dev/null", 5000);
+            const all = out.split("\n").map((s) => s.trim()).filter(Boolean);
+            const stale = all.filter((s) => s !== "team_1" && s !== "team_2");
+            this.output.appendLine(`[${t("diagSandboxes")}] ${stale.length}` + (all.length !== stale.length ? ` (total ${all.length}, team_1/team_2 excluded)` : ""));
+            for (const s of stale.slice(0, 30)) { this.output.appendLine("  • " + s); }
+            if (stale.length > 30) { this.output.appendLine(`  ... and ${stale.length - 30} more`); }
+        } catch { this.output.appendLine(`[${t("diagSandboxes")}] <unavailable>`); }
+        this.output.appendLine("=".repeat(28));
     }
 
     /** Check no match is in progress. */
@@ -606,10 +630,24 @@ idEl.focus();idEl.select();
         return { team1Id, team2Id };
     }
 
+    /** Is the football3v3_runner run.py process still alive? */
+    private async runnerAlive(): Promise<boolean> {
+        try {
+            const out = await dockerExec("pgrep -f 'run.py.*--teams' 2>/dev/null", 4000);
+            return out.trim().length > 0;
+        } catch { return false; }
+    }
+
     private async restartRunnerWithTeams(team1: string, team2: string): Promise<void> {
         this.saveCurrentTeams(team1, team2);
         this.output.appendLine("  Stopping old runner...");
         await dockerExec("pkill -9 -f football3v3; pkill -9 -f 'run.py.*teams'; pkill -9 -f pyagent_x86; sleep 2", 10000).catch(() => {});
+        // Clean stale sandboxes leaked by previous crashed runs (keep team_1 /
+        // team_2 for the new run). /run is a tmpfs, so leaked sandboxes from
+        // crashed runs accumulate and can starve the next sandbox.create().
+        // Harmless when none exist. The real "robots don't move" root cause is
+        // on the Booster Studio side — handled by the restart hint, not here.
+        await dockerExec("find /run/3v3_runner -maxdepth 1 -mindepth 1 -type d ! -name team_1 ! -name team_2 -exec rm -rf {} + 2>/dev/null", 8000).catch(() => {});
         await dockerExec("rm -rf /sys/fs/cgroup/3v3_runner/team_1 /sys/fs/cgroup/3v3_runner/team_2 2>/dev/null", 5000).catch(() => {});
 
         // Wrapper just cds into the runner dir and execs run.py. pyagent's ROS2
@@ -667,6 +705,15 @@ idEl.focus();idEl.select();
 
         for (let i = 0; i < 15; i++) {
             await new Promise(r => setTimeout(r, 5000));
+            // If run.py died, fail fast instead of waiting the full 75s. The
+            // usual root cause is on the Booster Studio side (stale injected
+            // runtime / ROS bridge), not something we can fix from inside the
+            // container — prompt the user to restart Booster Studio.
+            if (!await this.runnerAlive()) {
+                const msg = t("runnerDied");
+                this.output.appendLine("  " + msg);
+                throw new Error(msg);
+            }
             this.output.appendLine(`  Health ${i + 1}/15...`);
             try {
                 const h = await gameControlApi("/health", "GET", 5000);
@@ -675,7 +722,7 @@ idEl.focus();idEl.select();
                 }
             } catch { /* wait */ }
         }
-        throw new Error("Runner not ready in 75s.");
+        throw new Error(t("runnerNotReady"));
     }
 
     private getEventsLogPath(): string {
@@ -1074,6 +1121,7 @@ select{width:100%;padding:5px 8px;background:var(--vscode-dropdown-background);c
 <button class="btn s icb" style="flex:1" onclick="s('uploadAgent')" title="Upload Agent"><span class="ic">&#8682;</span><span class="lb" id="t_upload">Upload</span></button>
 <button class="btn s icb" style="flex:1" onclick="s('saveLog')" title="Save Log"><span class="ic">&#128190;</span><span class="lb" id="t_save">Save</span></button>
 <button class="btn s icb" style="flex:1" id="btnManageAgents" onclick="s('manageAgents')" title="Manage agents"><span class="ic">&#128203;</span><span class="lb" id="t_manageAgents">Manage</span></button>
+<button class="btn s icb" style="flex:1" onclick="s('diagnose')" title="Diagnose environment"><span class="ic">&#128269;</span><span class="lb" id="t_diagnose">Diagnose</span></button>
 </div></div>
 <div class="section"><div class="label" id="lblKeyEvents">Key Events</div><div class="ev" id="evList"><div class="empty">No events yet</div></div></div>
 <script>
@@ -1111,6 +1159,7 @@ function applyLang(){
   setText("cwTxt",T("containerNotRunning"));
   setText("btnStartContainer",T("startContainer"));
   setText("t_manageAgents",T("manageAgents"));
+  setText("t_diagnose",T("diagnose"));
   setText("cwLoadingTxt",T("startingContainer"));
   setText("t_b1",T("startMatchUi"));
   setText("t_b2",T("startHeadless"));

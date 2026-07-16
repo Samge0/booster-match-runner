@@ -68,6 +68,12 @@ const MESSAGES: Record<Lang, Record<string, string>> = {
         deployModeOverwrite: "overwrite",
         deletingAgent: "Deleting agent...",
         deleteFailed: "Delete failed",
+        runnerDied: "Runner process exited unexpectedly. This is usually stale state on the Booster Studio side. Please restart Booster Studio and retry.",
+        runnerNotReady: "Runner not ready in 75s — robots may not move. This is usually stale state on the Booster Studio side. Please restart Booster Studio and retry.",
+        diagnose: "Diagnose",
+        diagTitle: "=== Environment Diagnosis ===",
+        diagRos2: "ros2 launch processes (incl. booster_agent_manager)",
+        diagSandboxes: "Stale historical sandboxes",
     },
     zh: {
         score: "比分",
@@ -122,6 +128,12 @@ const MESSAGES: Record<Lang, Record<string, string>> = {
         deployModeOverwrite: "覆盖",
         deletingAgent: "正在删除 Agent…",
         deleteFailed: "删除失败",
+        runnerDied: "Runner 进程意外退出。通常是 Booster Studio 侧状态陈旧导致，请重启 Booster Studio 后重试。",
+        runnerNotReady: "Runner 75 秒内未就绪——机器人可能不动。通常是 Booster Studio 侧状态陈旧导致，请重启 Booster Studio 后重试。",
+        diagnose: "诊断",
+        diagTitle: "=== 环境诊断 ===",
+        diagRos2: "ros2 launch 进程（含 booster_agent_manager）",
+        diagSandboxes: "堆积的历史 sandbox",
     },
 };
 
