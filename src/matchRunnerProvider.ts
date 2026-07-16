@@ -229,16 +229,21 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         );
         if (choice !== "Delete") { return; }
         try {
-            if (agent.source === "container") {
-                await dockerExec(`rm -rf "${agent.path}"`, 10000);
-            } else if (agent.path) {
-                await fs.promises.rm(agent.path, { recursive: true, force: true });
-            }
-            if (this.selection.red === agentId) { this.selection.red = ""; }
-            if (this.selection.blue === agentId) { this.selection.blue = ""; }
-            await this.refresh();
+            await vscode.window.withProgress(
+                { location: vscode.ProgressLocation.Notification, title: t("deletingAgent"), cancellable: false },
+                async () => {
+                    if (agent.source === "container") {
+                        await dockerExec(`rm -rf "${agent.path}"`, 10000);
+                    } else if (agent.path) {
+                        await fs.promises.rm(agent.path, { recursive: true, force: true });
+                    }
+                    if (this.selection.red === agentId) { this.selection.red = ""; }
+                    if (this.selection.blue === agentId) { this.selection.blue = ""; }
+                    await this.refresh();
+                },
+            );
         } catch (err: any) {
-            vscode.window.showErrorMessage("Delete failed: " + err.message);
+            vscode.window.showErrorMessage(`${t("deleteFailed")}: ${err.message}`);
         }
     }
 
@@ -451,46 +456,128 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             let idOverride: string | undefined;
             let nameOverride: string | undefined;
             if (await containerAgentExists(meta.id)) {
-                const choice = await vscode.window.showWarningMessage(
-                    `Agent id '${meta.id}' already exists in the container.`,
-                    "Use new id/name",
-                    "Overwrite"
-                );
-                if (choice === undefined) { return; }
-                if (choice === "Use new id/name") {
-                    const newId = await vscode.window.showInputBox({
-                        prompt: "Custom agent id (directory name). Leave as-is to overwrite.",
-                        value: meta.id,
-                        validateInput: (v) => {
-                            const s = v.trim();
-                            if (!s) { return undefined; } // empty = overwrite
-                            // ROS2 node names are derived from the id (dots -> underscores)
-                            // and only allow alphanumerics + '_'. A '-' in the id produces
-                            // an invalid node name and the agent aborts at instantiate.
-                            return /^[a-zA-Z][a-zA-Z0-9.]*$/.test(s)
-                                ? undefined
-                                : "Only letters, digits and dots are allowed (no '-', '_', spaces). Must start with a letter.";
-                        },
-                    });
-                    if (newId === undefined) { return; }
-                    const newName = await vscode.window.showInputBox({
-                        prompt: "Custom display name for this agent.",
-                        value: meta.name,
-                    });
-                    if (newName === undefined) { return; }
-                    // Empty or unchanged id means overwrite → no override.
-                    if (newId.trim() && newId.trim() !== meta.id) {
-                        idOverride = newId.trim();
+                // Id collision: open a single webview form (id + name together)
+                // with version-suffix defaults, instead of two sequential input
+                // boxes. Clearing/keeping the id means overwrite the original.
+                const r = await this.promptCustomDeploy(meta);
+                if (r === undefined) { return; }   // user cancelled
+                if (r.idOverride) {
+                    idOverride = r.idOverride;
+                    nameOverride = r.nameOverride;
+                    if (await containerAgentExists(r.idOverride)) {
+                        const ow = await vscode.window.showWarningMessage(
+                            t("customDeployAlsoExists").replace("{id}", r.idOverride),
+                            t("customDeployOverwrite"),
+                            t("customDeployCancel"),
+                        );
+                        if (ow !== t("customDeployOverwrite")) { return; }
                     }
-                    if (newName.trim() && newName.trim() !== meta.name) {
-                        nameOverride = newName.trim();
-                    }
+                } else {
+                    nameOverride = r.nameOverride;
                 }
             }
-            const id = await deployAgentFile(filePath, idOverride, nameOverride);
-            vscode.window.showInformationMessage(`Deployed: ${id}`);
+            // Mode reflects reality: does the TARGET id (custom or original)
+            // already exist in the container? exists => overwrite, else => new.
+            // (idOverride being set just means "user typed a custom id in the
+            // collision form", NOT "this is a new deploy" — a first-time upload
+            // with no collision has idOverride undefined but is still a NEW deploy.)
+            const targetId = idOverride || meta.id;
+            const deployMode = (await containerAgentExists(targetId)) ? t("deployModeOverwrite") : t("deployModeNew");
+            const id = await vscode.window.withProgress(
+                { location: vscode.ProgressLocation.Notification, title: `${t("deployingAgent")} (${deployMode})`, cancellable: false },
+                () => deployAgentFile(filePath, idOverride, nameOverride),
+            );
+            vscode.window.showInformationMessage(`${t("deployedAgent")}: ${id}`);
             await this.refresh();
         } catch (err: any) { vscode.window.showErrorMessage("Deploy failed: " + err.message); }
+    }
+
+    /** Open a webview form with two fields (agent id + display name) pre-filled
+     *  with a version-suffix default, so the user can confirm both in one shot
+     *  on id collision. VSCode has no native two-input-box API, hence webview.
+     *  Resolves undefined on cancel; otherwise {idOverride?, nameOverride?}.
+     *  An empty / original id resolves with no idOverride (=> overwrite). */
+    private async promptCustomDeploy(meta: { id: string; name: string; version: string }): Promise<{ idOverride?: string; nameOverride?: string } | undefined> {
+        const digits = (meta.version || "").replace(/[^0-9]/g, "");
+        const suf = digits ? "v" + digits : "";
+        const defaultId = suf ? `${meta.id}.${suf}` : meta.id;
+        const defaultName = suf ? `${meta.name}${suf.toUpperCase()}` : meta.name;
+        return new Promise<{ idOverride?: string; nameOverride?: string } | undefined>((resolve) => {
+            const panel = vscode.window.createWebviewPanel(
+                "boosterMatch.customDeploy",
+                t("customDeployTitle"),
+                vscode.ViewColumn.Active,
+                { enableScripts: true },
+            );
+            let done = false;
+            const finish = (result: { idOverride?: string; nameOverride?: string } | undefined) => {
+                if (done) { return; }
+                done = true;
+                panel.dispose();
+                resolve(result);
+            };
+            panel.onDidDispose(() => finish(undefined));
+            panel.webview.onDidReceiveMessage((m: any) => {
+                if (m.type === "cancel") { finish(undefined); return; }
+                if (m.type === "submit") {
+                    const id = String(m.id || "").trim();
+                    const name = String(m.name || "").trim();
+                    const nameOverride = name && name !== meta.name ? name : undefined;
+                    if (!id || id === meta.id) {
+                        finish({ idOverride: undefined, nameOverride });
+                    } else {
+                        finish({ idOverride: id, nameOverride });
+                    }
+                }
+            });
+            panel.webview.html = this.customDeployHtml(meta, defaultId, defaultName, suf);
+        });
+    }
+
+    private customDeployHtml(meta: { id: string; name: string }, defaultId: string, defaultName: string, suf: string): string {
+        const esc = (s: string) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+        const hint = t("customDeployHint").replace("{id}", esc(meta.id)).replace("{suf}", suf ? "." + suf : "");
+        const invalidMsg = JSON.stringify(t("customDeployIdInvalid"));
+        return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);color:var(--vscode-foreground);padding:20px;margin:0}
+h2{margin:0 0 8px;font-weight:600;font-size:15px}
+.hint{font-size:12px;opacity:.8;margin-bottom:14px;line-height:1.5}
+.hint code{background:var(--vscode-textBlockQuote-background);padding:1px 5px;border-radius:3px;font-family:var(--vscode-editor-font-family)}
+label{display:block;font-size:11px;text-transform:uppercase;opacity:.7;margin:12px 0 4px;font-weight:600}
+input{width:100%;padding:7px 8px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border);border-radius:3px;font-size:13px;font-family:var(--vscode-editor-font-family);box-sizing:border-box}
+input:focus{outline:none;border-color:var(--vscode-focusBorder)}
+.err{font-size:11px;color:var(--vscode-errorForeground);min-height:14px;margin-top:3px}
+.actions{display:flex;justify-content:flex-end;gap:8px;margin-top:22px}
+button{padding:6px 18px;border:none;border-radius:3px;cursor:pointer;font-size:13px}
+.btn-primary{background:var(--vscode-button-background);color:var(--vscode-button-foreground);font-weight:600}
+.btn-primary:hover{background:var(--vscode-button-hoverBackground)}
+.btn-primary:disabled{opacity:.4;cursor:default}
+.btn-secondary{background:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground)}
+</style></head><body>
+<h2>${t("customDeployTitle")}</h2>
+<div class="hint">${hint}</div>
+<label for="fId">${t("customDeployIdLabel")}</label>
+<input id="fId" value="${esc(defaultId)}">
+<div class="err" id="fErr"></div>
+<label for="fName">${t("customDeployNameLabel")}</label>
+<input id="fName" value="${esc(defaultName)}">
+<div class="actions">
+<button class="btn-secondary" id="bCancel">${t("customDeployCancel")}</button>
+<button class="btn-primary" id="bOk">${t("customDeployOk")}</button>
+</div>
+<script>
+const vscode=acquireVsCodeApi();
+const idEl=document.getElementById('fId'),nameEl=document.getElementById('fName'),errEl=document.getElementById('fErr'),okBtn=document.getElementById('bOk'),cancelBtn=document.getElementById('bCancel');
+const RX=/^[a-zA-Z][a-zA-Z0-9.]*$/;
+function chk(){var v=idEl.value.trim();var ok=v===''||RX.test(v);errEl.textContent=ok?'':${invalidMsg};okBtn.disabled=!ok;return ok;}
+idEl.addEventListener('input',chk);
+cancelBtn.addEventListener('click',()=>vscode.postMessage({type:'cancel'}));
+okBtn.addEventListener('click',()=>{if(!chk())return;vscode.postMessage({type:'submit',id:idEl.value,name:nameEl.value});});
+window.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();if(!okBtn.disabled){okBtn.click();}}else if(e.key==='Escape'){cancelBtn.click();}});
+chk();
+idEl.focus();idEl.select();
+</script>
+</body></html>`;
     }
 
     /** If the selected agent is a local .agent file, deploy it to the container
