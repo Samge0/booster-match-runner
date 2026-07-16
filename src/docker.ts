@@ -157,7 +157,7 @@ function ros2PkgName(id: string): string {
  *  that share one ROS2 package name; the second team's pyagent can't start
  *  (package/node collision) and those robots never move. Used both by cloneAgent
  *  and by deployAgentFile's custom-id path. */
-async function renameAgentIdentity(agentDir: string, newId: string): Promise<void> {
+async function renameAgentIdentity(agentDir: string, newId: string, log?: (s: string) => void): Promise<void> {
     const jsonOut = await dockerExec(`cat ${agentDir}/agent.json`, 5000);
     const orig = JSON.parse(jsonOut.trim());
     const origPkg = orig.ros2?.package_name || ros2PkgName(orig.id || newId);
@@ -233,13 +233,32 @@ async function renameAgentIdentity(agentDir: string, newId: string): Promise<voi
     ];
     const spB64 = Buffer.from(spLines.join("\n") + "\n").toString("base64");
     await dockerExec(`echo ${spB64} | base64 -d > /tmp/_sp.py && python3 /tmp/_sp.py`, 10000).catch(() => {});
+
+    // SELF-CHECK (forensics for the "robots don't move" ghost bug): grep the
+    // renamed package for any residual origPkg in text files. A hit means a
+    // rename was missed — the classic cause when the same .agent is deployed
+    // under two custom ids (the twins still share origPkg somewhere → ROS
+    // node/package collision → one team's pyagent won't start). Skipped when
+    // origPkg is a substring of newPkg (would flood false positives). Binary
+    // files are excluded (-I); a hardcoded origPkg inside pyagent would not
+    // show up here and needs separate verification.
+    if (log && origPkg && !newPkg.includes(origPkg)) {
+        const hit = await dockerExec(`grep -rnI -F "${origPkg}" "${newPkgDir}" 2>/dev/null | head -30; true`, 8000).catch(() => "");
+        const lines = hit.split("\n").map((s) => s.trim()).filter(Boolean);
+        if (lines.length) {
+            log(`[rename self-check] WARNING: residual "${origPkg}" in ${newId} — likely incomplete rename:`);
+            for (const l of lines) { log("    " + l); }
+        } else {
+            log(`[rename self-check] ${newId}: clean (no "${origPkg}" residual in text files)`);
+        }
+    }
 }
 
 /**
  * Clone an agent in the container with a different ID (e.g. com.samge.agent -> com.samge.agent.blue).
  * Needed when both teams use the same agent and ROS2 package names would conflict.
  */
-export async function cloneAgent(sourceId: string, cloneId: string): Promise<void> {
+export async function cloneAgent(sourceId: string, cloneId: string, log?: (s: string) => void): Promise<void> {
     const extractRoot = "/opt/booster/booster_agent_data/data/agents/extract";
     const srcDir = `${extractRoot}/${sourceId}`;
     const dstDir = `${extractRoot}/${cloneId}`;
@@ -249,7 +268,7 @@ export async function cloneAgent(sourceId: string, cloneId: string): Promise<voi
         await dockerExec(`rm -rf ${dstDir}`, 10000);
     }
     await dockerExec(`cp -a ${srcDir} ${dstDir}`, 30000);
-    await renameAgentIdentity(dstDir, cloneId);
+    await renameAgentIdentity(dstDir, cloneId, log);
 }
 
 /**
@@ -259,7 +278,8 @@ export async function cloneAgent(sourceId: string, cloneId: string): Promise<voi
 export async function deployAgentFile(
     hostPath: string,
     agentIdOverride?: string,
-    nameOverride?: string
+    nameOverride?: string,
+    log?: (s: string) => void
 ): Promise<string> {
     const extractRoot = "/opt/booster/booster_agent_data/data/agents/extract";
     const containerTmp = "/tmp/uploaded_agent.agent";
@@ -321,7 +341,7 @@ export async function deployAgentFile(
     // truly independent agent. Otherwise two copies of the same .agent share one
     // ROS2 package name and the second team's pyagent can't start.
     if (agentIdOverride && agentIdOverride !== agentJson.id) {
-        await renameAgentIdentity(targetDir, agentIdOverride);
+        await renameAgentIdentity(targetDir, agentIdOverride, log);
     }
 
     // Override display name in agent.json if requested. Name may be a string

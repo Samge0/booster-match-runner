@@ -4,3 +4,8 @@ tsconfig.json
 .git*
 .claude/
 docs/
+.cache/
+.codegraph/
+.cursor/
+.codex/
+*.vsix

@@ -223,6 +223,13 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
     async deleteAgent(agentId: string) {
         const agent = this.agents.find((a) => a.id === agentId);
         if (!agent) { return; }
+        // Block deleting an agent that is currently in a running match — run.py
+        // still references it, and removing it mid-match can stall that team.
+        // The user must stop the match first.
+        if (this.isRunning && (this.selection.red === agentId || this.selection.blue === agentId)) {
+            vscode.window.showWarningMessage(t("deleteBlockedByMatch"));
+            return;
+        }
         const where = agent.source === "container" ? `container:${agent.path}` : agent.path;
         const choice = await vscode.window.showWarningMessage(
             `${t("confirmDelete")}\n${where}`,
@@ -509,7 +516,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             const deployMode = (await containerAgentExists(targetId)) ? t("deployModeOverwrite") : t("deployModeNew");
             const id = await vscode.window.withProgress(
                 { location: vscode.ProgressLocation.Notification, title: `${t("deployingAgent")} (${deployMode})`, cancellable: false },
-                () => deployAgentFile(filePath, idOverride, nameOverride),
+                () => deployAgentFile(filePath, idOverride, nameOverride, (s) => this.diagLine(s)),
             );
             vscode.window.showInformationMessage(`${t("deployedAgent")}: ${id}`);
             await this.refresh();
@@ -611,7 +618,7 @@ idEl.focus();idEl.select();
         const agent = this.agents.find((a) => a.id === agentId);
         if (agent && agent.source === "file" && agent.path) {
             this.output.appendLine(`  Deploying local .agent file: ${agent.path}`);
-            return await deployAgentFile(agent.path);
+            return await deployAgentFile(agent.path, undefined, undefined, (s) => this.diagLine(s));
         }
         return agentId;
     }
@@ -623,11 +630,18 @@ idEl.focus();idEl.select();
         let team2Id = await this.ensureDeployed(this.selection.blue);
         if (team1Id === team2Id) {
             const cloneId = `${team2Id}.blue`;
-            await cloneAgent(team2Id, cloneId);
+            await cloneAgent(team2Id, cloneId, (s) => this.diagLine(s));
             team2Id = cloneId;
             await this.refresh();
         }
         return { team1Id, team2Id };
+    }
+
+    /** Append a diagnostics line to the output channel and reveal it — the
+     *  forensics sink for the rename self-check during custom-id deploy/clone. */
+    private diagLine(s: string): void {
+        this.output.show(true);
+        this.output.appendLine(s);
     }
 
     /** Is the football3v3_runner run.py process still alive? */
@@ -710,6 +724,7 @@ idEl.focus();idEl.select();
             // runtime / ROS bridge), not something we can fix from inside the
             // container — prompt the user to restart Booster Studio.
             if (!await this.runnerAlive()) {
+                await this.dumpMatchStartDiagnostics("runner exited");
                 const msg = t("runnerDied");
                 this.output.appendLine("  " + msg);
                 throw new Error(msg);
@@ -722,7 +737,47 @@ idEl.focus();idEl.select();
                 }
             } catch { /* wait */ }
         }
+        await this.dumpMatchStartDiagnostics("not ready in 75s");
         throw new Error(t("runnerNotReady"));
+    }
+
+    /** Dump match-start failure forensics to the output channel AND persist it
+     *  to ~/.booster-match-runner/match-start-failure.log (overwritten each
+     *  failure) so the user can find it even after a reload. Captures run.py
+     *  log tail, last /health response, sandbox dirs, and live processes at the
+     *  moment of failure — pure diagnostics, no root-cause assumption. */
+    private async dumpMatchStartDiagnostics(reason: string): Promise<void> {
+        const lines: string[] = [`--- diagnostics: ${reason} ---`];
+        try {
+            const log = await dockerExec("tail -40 /usr/local/booster_agent/football3v3_runner/football3v3-run.log 2>/dev/null", 5000);
+            lines.push("[run.py log tail]");
+            for (const l of log.split("\n").filter(Boolean)) { lines.push("  " + l); }
+        } catch { lines.push("[run.py log tail] <unavailable>"); }
+        try {
+            const h = await gameControlApi("/health", "GET", 5000);
+            lines.push(`[health] ${JSON.stringify(h)}`);
+        } catch { lines.push("[health] <unavailable>"); }
+        try {
+            const sb = await dockerExec("ls /run/3v3_runner/ 2>/dev/null", 4000);
+            const dirs = sb.split("\n").map((s) => s.trim()).filter(Boolean).join(", ");
+            lines.push(`[sandboxes] ${dirs || "<none>"}`);
+        } catch { lines.push("[sandboxes] <unavailable>"); }
+        try {
+            const ps = await dockerExec("pgrep -af 'run.py|pyagent|ros2 launch' 2>/dev/null | grep -v pgrep", 4000);
+            const psLines = ps.split("\n").map((s) => s.trim()).filter(Boolean);
+            lines.push("[processes]");
+            for (const l of psLines) { lines.push("  " + l); }
+            if (!psLines.length) { lines.push("  <none matching>"); }
+        } catch { lines.push("[processes] <none matching>"); }
+        lines.push("--- end diagnostics ---");
+        for (const l of lines) { this.output.appendLine("  " + l); }
+        try {
+            const dir = path.join(os.homedir(), ".booster-match-runner");
+            await fs.promises.mkdir(dir, { recursive: true });
+            const file = path.join(dir, "match-start-failure.log");
+            await fs.promises.writeFile(file, lines.join("\n") + "\n", "utf8");
+            this.output.appendLine(`  [diagnostics saved to ${file}]`);
+        } catch { /* best effort — output channel already has it */ }
     }
 
     private getEventsLogPath(): string {
