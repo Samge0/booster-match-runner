@@ -10,7 +10,7 @@ import { getMatchStatus, startMatch as apiStartMatch, endMatch as apiEndMatch } 
 import { isContainerRunning, dockerExec, cloneAgent, deployAgentFile, gameControlApi, dockerExecDetached, startSimContainer } from "./docker";
 import { AgentInfo, MatchStatus } from "./types";
 import { getBaseLineCount, readNewEvents, ParsedEvent, shellQuote } from "./eventReader";
-import { initLang, toggleLang, getI18nBundle, t, eventLabel } from "./i18n";
+import { initLang, toggleLang, getI18nBundle, t, eventLabel, getLang } from "./i18n";
 import AdmZip from "adm-zip";
 import * as path from "path";
 import * as os from "os";
@@ -56,6 +56,8 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
     private pollTimer: ReturnType<typeof setInterval> | undefined;
     private matchStartedAt: number | null = null;
     private currentMode: MatchMode = MODE_HEADLESS;
+    private autoEnded = false;
+    private startingNew = false;
     private output: vscode.OutputChannel;
 
     constructor(private readonly context: vscode.ExtensionContext) {
@@ -247,8 +249,13 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
     /** Check no match is in progress. */
     private async checkNotRunning(): Promise<boolean> {
         if (this.isRunning) {
-            vscode.window.showWarningMessage("A match is already running from this panel.");
-            return false;
+            const choice = await vscode.window.showWarningMessage(
+                "A match is already running. Stop it and start a new one?",
+                "Stop & Start New", "Cancel"
+            );
+            if (choice !== "Stop & Start New") { return false; }
+            await this.endMatch();
+            return true;
         }
         try {
             const status = await getMatchStatus();
@@ -279,15 +286,14 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
     }
 
     async startVisualMatch() {
-        const cfg = vscode.workspace.getConfiguration("boosterMatch");
-        const timeout = cfg.get<number>("matchLength", 0);
-        const lead = cfg.get<number>("leadGoals", 0);
         this.currentMode = MODE_VISUAL;
         if (!(await this.checkNotRunning())) { return; }
         if (!this.selection.red || !this.selection.blue) {
             vscode.window.showWarningMessage("Select agents for both teams."); return;
         }
         this.isRunning = true;
+        this.startingNew = true;
+        this.postMessage({ type: "matchStarting", mode: this.currentMode });
         await this.resetEventTracking();
         const redName = this.agents.find((a) => a.id === this.selection.red)?.name || this.selection.red;
         const blueName = this.agents.find((a) => a.id === this.selection.blue)?.name || this.selection.blue;
@@ -302,40 +308,44 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             await this.restartRunnerWithTeams(team1Id, team2Id);
             this.postMessage({ type: "status_text", text: "Starting match!" });
             await apiStartMatch();
+            this.startingNew = false;
             this.postMessage({ type: "matchStarted", redName, blueName, mode: this.currentMode });
-            await this.monitorMatch(apiEndMatch, timeout, lead);
+            await this.monitorMatch();
             await this.autoSaveRecord(MODE_VISUAL);
         } catch (err: any) {
             this.output.appendLine("ERROR: " + err.message);
             vscode.window.showErrorMessage("Match failed: " + err.message);
         } finally {
             this.isRunning = false;
+            this.startingNew = false;
             this.postMessage({ type: "matchEnded" });
         }
     }
 
     async startMatch(count = 1) {
-        const cfg = vscode.workspace.getConfiguration("boosterMatch");
-        const timeout = cfg.get<number>("matchLength", 0);
-        const lead = cfg.get<number>("leadGoals", 0);
         this.currentMode = MODE_HEADLESS;
         if (!(await this.checkNotRunning())) { return; }
         if (!this.selection.red || !this.selection.blue) {
             vscode.window.showWarningMessage("Select agents for both teams."); return;
         }
-        const { team1Id, team2Id } = await this.deployAndClone();
         this.isRunning = true;
+        this.startingNew = true;
+        this.postMessage({ type: "matchStarting", mode: this.currentMode });
         this.output.show();
-        this.output.appendLine(`\n=== HEADLESS x${count}: ${team1Id} vs ${team2Id} ===\n`);
         try {
+            const { team1Id, team2Id } = await this.deployAndClone();
+            if (!this.isRunning) { return; }
+            this.output.appendLine(`\n=== HEADLESS x${count}: ${team1Id} vs ${team2Id} ===\n`);
             for (let i = 0; i < count; i++) {
+                if (!this.isRunning) { break; }
                 this.postMessage({ type: "batchProgress", current: i + 1, total: count });
                 this.output.appendLine(`\n--- Match ${i + 1}/${count} ---`);
                 await this.resetEventTracking();
-                this.postMessage({ type: "matchStarted", redName: team1Id, blueName: team2Id, mode: this.currentMode });
                 await this.restartRunnerWithTeams(team1Id, team2Id);
                 await apiStartMatch();
-                await this.monitorMatch(apiEndMatch, timeout, lead);
+                this.startingNew = false;
+                this.postMessage({ type: "matchStarted", redName: team1Id, blueName: team2Id, mode: this.currentMode });
+                await this.monitorMatch();
                 await this.autoSaveRecord(MODE_HEADLESS);
                 if (!this.isRunning) { break; }
                 if (i < count - 1) {
@@ -349,11 +359,12 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             vscode.window.showErrorMessage("Match failed: " + err.message);
         } finally {
             this.isRunning = false;
+            this.startingNew = false;
             this.postMessage({ type: "matchEnded" });
         }
     }
 
-    private async monitorMatch(endMatchFn: () => Promise<void>, timeoutSeconds = 0, leadGoals = 0) {
+    private async monitorMatch() {
         const startTime = Date.now();
         let lastScore = "";
         // Count consecutive polls where the match is not actually playing.
@@ -364,7 +375,6 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         let staleCount = 0;
         while (this.isRunning) {
             const elapsed = (Date.now() - startTime) / 1000;
-            if (timeoutSeconds > 0 && elapsed > timeoutSeconds) { await endMatchFn(); break; }
             let status: MatchStatus;
             try { status = await getMatchStatus(); }
             catch { await new Promise(r => setTimeout(r, 3000)); continue; }
@@ -374,9 +384,10 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
                 this.output.appendLine(`[${elapsed.toFixed(0)}s] ${sk} | ${status.state} | ${status.durationSeconds.toFixed(0)}s`);
                 lastScore = sk;
             }
-            // NOTE: status + events UI updates are handled by pollOnce() (independent
-            // timer started in resolveWebviewView), so they survive reload/reopen.
-            // monitorMatch only owns auto-end logic here.
+            // NOTE: status + events UI updates AND the leadGoals/matchLength
+            // auto-end are handled by pollOnce() (independent timer started in
+            // resolveWebviewView), so they survive reload/reopen. monitorMatch
+            // only logs and waits for the finish here.
             if (status.isFinished) {
                 this.output.appendLine(`\n=== FINISHED: ${sk} ===\n`);
                 break;
@@ -389,7 +400,6 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
                     break;
                 }
             } else { staleCount = 0; }
-            if (leadGoals > 0 && Math.abs(status.score.home - status.score.away) >= leadGoals) { await endMatchFn(); break; }
             await new Promise(r => setTimeout(r, 3000));
         }
     }
@@ -581,6 +591,28 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             wallTime: status.endedAtWallTime ?? Math.floor(Date.now() / 1000),
             type: "match_finished",
             icon: "🏁",
+            actorSide: null,
+            actorName: null,
+            scoreHome: status.score.home,
+            scoreAway: status.score.away,
+        });
+        this.postEventsToView();
+    }
+
+    /** Append a synthetic event describing why a match was ended early by config
+     *  (leadGoals / matchLength). Pre-localized so the webview shows it verbatim. */
+    private appendEarlyEndEvent(reason: "lead_goals" | "match_length", status: MatchStatus, leadGoals: number, matchLength: number): void {
+        const zh = getLang() === "zh";
+        const diff = Math.abs(status.score.home - status.score.away);
+        const text = reason === "lead_goals"
+            ? (zh ? `提前结束：领先达到 ${diff} 球（≥ 配置 leadGoals=${leadGoals}）` : `Auto-ended: lead reached ${diff} (≥ leadGoals=${leadGoals})`)
+            : (zh ? `提前结束：时长 ${status.durationSeconds.toFixed(0)}s（≥ 配置 matchLength=${matchLength}s）` : `Auto-ended: duration ${status.durationSeconds.toFixed(0)}s (≥ matchLength=${matchLength}s)`);
+        this.currentEvents.push({
+            eventId: "local-early-end",
+            wallTime: Math.floor(Date.now() / 1000),
+            type: "early_end",
+            icon: "🛑",
+            text,
             actorSide: null,
             actorName: null,
             scoreHome: status.score.home,
@@ -781,6 +813,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         this.baseLineCount = await getBaseLineCount(this.eventsLogPath).catch(() => 0);
         this.currentEvents = [];
         this.finishEventAdded = false;
+        this.autoEnded = false;
     }
 
     /** Recover event tracking after reload/reopen: baseline = last match_started line,
@@ -788,6 +821,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
     private async recoverEventTracking(): Promise<void> {
         this.eventsLogPath = this.getEventsLogPath();
         this.finishEventAdded = false;
+        this.autoEnded = false;
         const out = await dockerExec(
             `grep -n '"type":"match_started"' ${shellQuote(this.eventsLogPath)} | tail -1 | cut -d: -f1`,
             8000
@@ -832,6 +866,27 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         if (status.isFinished && !this.finishEventAdded) {
             this.finishEventAdded = true;
             this.appendFinishEvent(status);
+        }
+        // Reload-safe auto-end on leadGoals / matchLength. monitorMatch does NOT
+        // survive reload, so this independent poll owns auto-ending (a match
+        // started before reload would otherwise never auto-end). Fires at most
+        // once per match (autoEnded resets in reset/recoverEventTracking).
+        if (active && !status.isFinished && !this.autoEnded && !this.startingNew) {
+            const cfg = vscode.workspace.getConfiguration("boosterMatch");
+            const leadGoals = cfg.get<number>("leadGoals", 0);
+            const matchLength = cfg.get<number>("matchLength", 0);
+            let reason: "lead_goals" | "match_length" | null = null;
+            if (leadGoals > 0 && Math.abs(status.score.home - status.score.away) >= leadGoals) {
+                reason = "lead_goals";
+            } else if (matchLength > 0 && status.durationSeconds >= matchLength) {
+                reason = "match_length";
+            }
+            if (reason) {
+                this.autoEnded = true;
+                this.appendEarlyEndEvent(reason, status, leadGoals, matchLength);
+                this.output.appendLine(`Auto-end triggered (${reason}), ending match...`);
+                await this.endMatch();
+            }
         }
         if (!active) { return; }
         try {
@@ -918,6 +973,7 @@ select{width:100%;padding:5px 8px;background:var(--vscode-dropdown-background);c
 <script>
 const v=acquireVsCodeApi();
 var panelState="idle";
+var startingMatch=false;
 var lastStatus=null,lastEvents=[];
 var I18N={lang:"en",msg:{score:"Score",teams:"Teams",actions:"Actions",keyEvents:"Key Events",start:"Start",end:"End",count:"Count",records:"Match records",noEvents:"No events yet",starting:"Starting…",containerUnreachable:"Container unreachable",containerNotRunning:"Container not running.",startContainer:"Start Container",startMatchUi:"Start Match + UI",startHeadless:"Start Headless",ui:"UI",refresh:"Refresh",upload:"Upload",save:"Save",loading:"Loading...",noAgents:"No agents",preparing:"Preparing…",red:"Red",blue:"Blue",manageAgents:"Manage",startingContainer:"Starting container…"},states:{playing:"Playing",ready:"Ready",set:"Set",finished:"Finished"},events:{}};
 function T(k){return I18N.msg[k]||k}
@@ -974,6 +1030,7 @@ case"events":lastEvents=m.events;renderEvents(m.events);break;
 case"batchProgress":{var pg=document.getElementById("progress");if(pg)pg.textContent=m.total>1?(m.current+"/"+m.total):"";break}
 case"matchStarted":
   panelState="running";
+  startingMatch=false;
   setScore(0,0);
   document.getElementById("tStart").textContent=T("starting");
   document.getElementById("tEnd").textContent=T("starting");
@@ -983,13 +1040,16 @@ case"matchStarted":
   document.getElementById("bn").textContent=m.blueName||"Blue";
   renderEvents([]);
   break;
+case"matchStarting":
 case"matchActive":
   panelState="running";
   d("b1",1);d("b2",1);d("b3",0);
   d("bSim",m.mode==="headless"?1:0);
+  if(m.type==="matchStarting"){startingMatch=true;}
   break;
 case"matchEnded":
   panelState="finished";
+  startingMatch=false;
   d("b1",0);d("b2",0);d("b3",1);
   d("bSim",0);
   {var pg0=document.getElementById("progress");if(pg0)pg0.textContent="";}
@@ -1014,7 +1074,7 @@ function rs(st){
 if(!st){document.getElementById("tEnd").textContent=T("containerUnreachable");return;}
 var active=st.state==="playing"||st.state==="ready"||st.state==="set";
 if(panelState==="idle"){panelState=st.isFinished?"finished":(active?"running":"idle");}
-if(st.isFinished){panelState="finished";d("b1",0);d("b2",0);d("b3",1);d("bSim",0);}
+if(st.isFinished&&!startingMatch){panelState="finished";d("b1",0);d("b2",0);d("b3",1);d("bSim",0);}
 var updateScore=panelState!=="finished"||st.isFinished;
 if(updateScore){setScore(st.score.home,st.score.away);}
 document.getElementById("tStart").textContent=st.startedAtWallTime?fmtTime(st.startedAtWallTime,true):(active?T("preparing"):"—");
@@ -1032,9 +1092,10 @@ var homeName=document.getElementById("rn").textContent||T("red");
 var awayName=document.getElementById("bn").textContent||T("blue");
 var rows=evs.map(function(ev){
   var nm;
-  if(ev.actorSide==="home"){nm='<span class="nm r">'+e(homeName)+" "+e(evLabel(ev.type))+"</span>";}
-  else if(ev.actorSide==="away"){nm='<span class="nm b">'+e(awayName)+" "+e(evLabel(ev.type))+"</span>";}
-  else{nm='<span class="nm">'+e(evLabel(ev.type))+"</span>";}
+  var lbl=ev.text||evLabel(ev.type);
+  if(ev.actorSide==="home"){nm='<span class="nm r">'+e(homeName)+" "+e(lbl)+"</span>";}
+  else if(ev.actorSide==="away"){nm='<span class="nm b">'+e(awayName)+" "+e(lbl)+"</span>";}
+  else{nm='<span class="nm">'+e(lbl)+"</span>";}
   return '<div class="row"><span class="ic">'+ev.icon+'</span><span class="t">'+fmtTime(ev.wallTime,false)+'</span>'+nm+'<span class="sc">'+ev.scoreHome+'-'+ev.scoreAway+'</span></div>';
 }).join("");
 el.innerHTML=rows;

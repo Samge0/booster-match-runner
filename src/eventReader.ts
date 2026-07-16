@@ -15,6 +15,9 @@ export interface ParsedEvent {
     actorName: string | null;
     scoreHome: number;
     scoreAway: number;
+    /** Optional pre-localized label for synthetic events (e.g. early-end reason),
+     *  shown verbatim instead of deriving a label from `type`. */
+    text?: string;
 }
 
 /** Event types shown in Key Events (core + restart-play). Noise types are
