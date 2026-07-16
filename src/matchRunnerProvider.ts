@@ -158,8 +158,8 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             case "refresh": await this.refresh(); break;
             case "selectRed": this.selection.red = msg.agentId; break;
             case "selectBlue": this.selection.blue = msg.agentId; break;
-            case "startVisual": await this.startVisualMatch(msg.timeout || 0, msg.lead || 0); break;
-            case "startMatch": await this.startMatch(msg.count || 1, msg.timeout || 0, msg.lead || 0); break;
+            case "startVisual": await this.startVisualMatch(); break;
+            case "startMatch": await this.startMatch(msg.count || 1); break;
             case "endMatch": await this.endMatch(); break;
             case "openSim": await this.openSimulator(); break;
             case "uploadAgent": await this.uploadAgentFile(); break;
@@ -266,7 +266,10 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         vscode.window.showInformationMessage("Click the robot icon in Booster Studio sidebar, then Run.");
     }
 
-    async startVisualMatch(timeout = 0, lead = 0) {
+    async startVisualMatch() {
+        const cfg = vscode.workspace.getConfiguration("boosterMatch");
+        const timeout = cfg.get<number>("matchLength", 0);
+        const lead = cfg.get<number>("leadGoals", 0);
         if (!(await this.checkNotRunning())) { return; }
         if (!this.selection.red || !this.selection.blue) {
             vscode.window.showWarningMessage("Select agents for both teams."); return;
@@ -298,7 +301,10 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    async startMatch(count = 1, timeout = 0, lead = 0) {
+    async startMatch(count = 1) {
+        const cfg = vscode.workspace.getConfiguration("boosterMatch");
+        const timeout = cfg.get<number>("matchLength", 0);
+        const lead = cfg.get<number>("leadGoals", 0);
         if (!(await this.checkNotRunning())) { return; }
         if (!this.selection.red || !this.selection.blue) {
             vscode.window.showWarningMessage("Select agents for both teams."); return;
@@ -862,7 +868,6 @@ select{width:100%;padding:5px 8px;background:var(--vscode-dropdown-background);c
 <div class="tr"><div class="dot b"></div><select id="bsel" onchange="sel('blue',this.value)"><option value="" id="optBlue">Loading...</option></select></div></div>
 <div class="section">
 <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:11px;opacity:.7;width:3em" id="lblCount">Count</span><input id="count" type="number" min="1" max="999" value="1" style="flex:1;padding:5px 8px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border);border-radius:3px;font-size:12px"><span id="progress" style="font-size:11px;opacity:.7;min-width:34px;text-align:center"></span><button class="btn s" id="btnRecords" style="flex:0 0 auto;padding:5px 10px;font-size:13px" onclick="s('showRecords')" title="Match records">&#128203;</button></div>
-<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><span style="font-size:11px;opacity:.7;white-space:nowrap" id="lblTimeout">Match length(s)</span><input id="timeout" type="number" min="0" max="99999" value="0" style="flex:1;padding:5px 8px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border);border-radius:3px;font-size:12px"><span style="font-size:11px;opacity:.7;white-space:nowrap;margin-left:4px" id="lblLead">Lead goals</span><input id="lead" type="number" min="0" max="99" value="0" style="flex:1;padding:5px 8px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border);border-radius:3px;font-size:12px"></div>
 <button class="btn" id="b1" onclick="sendStart('startVisual')">&#127944; <span id="t_b1">Start Match + UI</span></button>
 <button class="btn s" id="b2" onclick="sendStart('startMatch')">&#9881; <span id="t_b2">Start Headless</span></button>
 <div style="display:flex;gap:4px;margin-top:4px">
@@ -880,14 +885,14 @@ select{width:100%;padding:5px 8px;background:var(--vscode-dropdown-background);c
 const v=acquireVsCodeApi();
 var panelState="idle";
 var lastStatus=null,lastEvents=[];
-var I18N={lang:"en",msg:{score:"Score",teams:"Teams",actions:"Actions",keyEvents:"Key Events",start:"Start",end:"End",count:"Count",records:"Match records",noEvents:"No events yet",starting:"Starting…",containerUnreachable:"Container unreachable",containerNotRunning:"Container not running.",startContainer:"Start Container",startMatchUi:"Start Match + UI",startHeadless:"Start Headless",ui:"UI",refresh:"Refresh",upload:"Upload",save:"Save",loading:"Loading...",noAgents:"No agents",timeout:"Match length(s)",lead:"Lead goals",preparing:"Preparing…",red:"Red",blue:"Blue",manageAgents:"Manage",startingContainer:"Starting container…"},states:{playing:"Playing",ready:"Ready",set:"Set",finished:"Finished"},events:{}};
+var I18N={lang:"en",msg:{score:"Score",teams:"Teams",actions:"Actions",keyEvents:"Key Events",start:"Start",end:"End",count:"Count",records:"Match records",noEvents:"No events yet",starting:"Starting…",containerUnreachable:"Container unreachable",containerNotRunning:"Container not running.",startContainer:"Start Container",startMatchUi:"Start Match + UI",startHeadless:"Start Headless",ui:"UI",refresh:"Refresh",upload:"Upload",save:"Save",loading:"Loading...",noAgents:"No agents",preparing:"Preparing…",red:"Red",blue:"Blue",manageAgents:"Manage",startingContainer:"Starting container…"},states:{playing:"Playing",ready:"Ready",set:"Set",finished:"Finished"},events:{}};
 function T(k){return I18N.msg[k]||k}
 function humanize(ty){return ty.split("_").map(function(w){return w?w.charAt(0).toUpperCase()+w.slice(1):w}).join(" ")}
 function evLabel(ty){return I18N.events[ty]||humanize(ty)}
 function stateLabel(s){return I18N.states[s]||s}
 function toggleLang(){v.postMessage({type:"toggleLang"})}
 function s(t){v.postMessage({type:t})}
-function sendStart(t){var c=parseInt(document.getElementById('count').value)||1;var to=parseInt(document.getElementById('timeout').value)||0;var ld=parseInt(document.getElementById('lead').value)||0;v.postMessage({type:t,count:c,timeout:to,lead:ld})}
+function sendStart(t){var c=parseInt(document.getElementById('count').value)||1;v.postMessage({type:t,count:c})}
 function sel(t,id){v.postMessage({type:"select"+t.charAt(0).toUpperCase()+t.slice(1),agentId:id})}
 function fmtTime(sec,withDate){
   if(!sec||!isFinite(sec))return withDate?"—":"--:--:--";
@@ -905,8 +910,6 @@ function applyLang(){
   setText("lblStart",T("start"));
   setText("lblEnd",T("end"));
   setText("lblCount",T("count"));
-  setText("lblTimeout",T("timeout"));
-  setText("lblLead",T("lead"));
   setText("cwTxt",T("containerNotRunning"));
   setText("btnStartContainer",T("startContainer"));
   setText("t_manageAgents",T("manageAgents"));

@@ -82,33 +82,45 @@
     "configuration": {
       "title": "Booster Match Runner",
       "properties": {
+        "boosterMatch.matchLength": {
+          "order": 1,
+          "type": "number",
+          "default": 0,
+          "description": "Auto-end each match after this many seconds (0 = disabled; run until the sim finishes or you click End). Handy for capping headless batch runs."
+        },
+        "boosterMatch.leadGoals": {
+          "order": 2,
+          "type": "number",
+          "default": 0,
+          "markdownDescription": "Auto-end the match once one team leads by this many goals (either side). 0 = disabled. Example: `3` ends the match as soon as the score gap reaches 3."
+        },
+        "boosterMatch.defaultOpponent": {
+          "order": 3,
+          "type": "string",
+          "default": "com.booster.default3v3ai",
+          "description": "Default opponent agent ID"
+        },
+        "boosterMatch.hostAgentRoots": {
+          "order": 4,
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Host directories to scan for .agent files (one level into each root + .agent files directly in the root). Empty by default; configure as needed."
+        },
         "boosterMatch.containerName": {
+          "order": 5,
           "type": "string",
           "default": "",
           "description": "Docker container name running the simulation. Must be configured by the user."
         },
         "boosterMatch.gameControlPort": {
+          "order": 6,
           "type": "number",
           "default": 38383,
           "description": "Game control HTTP API port inside the container"
         },
-        "boosterMatch.defaultOpponent": {
-          "type": "string",
-          "default": "com.booster.default3v3ai",
-          "description": "Default opponent agent ID"
-        },
-        "boosterMatch.projectsDir": {
-          "type": "string",
-          "default": "",
-          "description": "Directory containing Booster Studio agent projects. Leave empty if unused."
-        },
-        "boosterMatch.hostAgentRoots": {
-          "type": "array",
-          "items": { "type": "string" },
-          "default": [],
-          "description": "Extra host directories to scan for .agent files (in addition to projectsDir). Empty by default; configure as needed."
-        },
         "boosterMatch.simImage": {
+          "order": 7,
           "type": "string",
           "default": "booster-robotics-registry.cn-beijing.cr.aliyuncs.com/virtual-robot/virtual-robot:0.6.5-beta",
           "description": "Docker image used to locate and start the sim container"

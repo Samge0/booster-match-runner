@@ -195,7 +195,7 @@ webview 是 `matchRunnerProvider.getHtml()` 里一段自包含 HTML+JS 字符串
 
 - **改默认对手 / 端口 / 镜像** → `package.json` 的 `contributes.configuration`。
 - **加新的事件类型显示** → `src/eventReader.ts` 的 `KEY_EVENTS`（英文标签自动 humanize，中文加到 `src/i18n.ts` `EVENT_LABELS.zh`）。
-- **自动结束阈值**（超时秒数 / 领先球数）→ 现由面板传入，默认 `0 = 不启用`；逻辑在 `matchRunnerProvider.ts` `monitorMatch(endMatchFn, timeoutSeconds, leadGoals)`，领先判定为双向 `Math.abs(home-away) >= leadGoals`。
+- **自动结束阈值**（超时秒数 / 领先球数）→ 由设置项 `boosterMatch.matchLength` / `boosterMatch.leadGoals` 配置，默认 `0 = 不启用`；逻辑在 `matchRunnerProvider.ts` `monitorMatch(endMatchFn, timeoutSeconds, leadGoals)`，领先判定为双向 `Math.abs(home-away) >= leadGoals`。
 - **换语言/加语言** → `src/i18n.ts`（`Lang` 类型 + 字典 + webview 默认字典）。
 - **改记录存储位置/格式** → `recordsDir()`、`buildMatchZip()`、`exportRecordsCsv()`。
 

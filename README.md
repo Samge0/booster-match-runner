@@ -99,6 +99,8 @@ Open Booster Studio Settings and search for `boosterMatch`:
 | `boosterMatch.simImage` | `booster-robotics-registry.cn-beijing.cr.aliyuncs.com/virtual-robot/virtual-robot:0.6.5-beta` | Image used to locate/start the sim container. |
 | `boosterMatch.gameControlPort` | `38383` | Game-control HTTP API port **inside** the container. |
 | `boosterMatch.defaultOpponent` | `com.booster.default3v3ai` | Default Blue-team agent id. |
+| `boosterMatch.matchLength` | `0` | Auto-end each match after this many seconds. `0` = disabled (run until the sim finishes or you click End). |
+| `boosterMatch.leadGoals` | `0` | Auto-end once one team leads by this many goals (either side). `0` = disabled. |
 | `boosterMatch.hostAgentRoots` | `[]` | Host dirs to scan for `.agent` files (one level into each root + root-level `.agent`). |
 
 ---

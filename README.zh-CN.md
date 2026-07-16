@@ -99,6 +99,8 @@ npx vsce package --no-git-tag-version --allow-missing-repository
 | `boosterMatch.simImage` | `booster-robotics-registry.cn-beijing.cr.aliyuncs.com/virtual-robot/virtual-robot:0.6.5-beta` | 用于定位/启动仿真容器的镜像。 |
 | `boosterMatch.gameControlPort` | `38383` | **容器内** game-control HTTP API 端口。 |
 | `boosterMatch.defaultOpponent` | `com.booster.default3v3ai` | 默认蓝方 agent id。 |
+| `boosterMatch.matchLength` | `0` | 开赛后经过该秒数自动结束单场。`0` = 不启用（跑到仿真结束或手动点 End）。 |
+| `boosterMatch.leadGoals` | `0` | 任一方领先达到该球数即自动结束（双向）。`0` = 不启用。 |
 | `boosterMatch.hostAgentRoots` | `[]` | 宿主机目录，用于扫描 `.agent` 文件（深入一层工程目录 + 根目录下的 `.agent`）。 |
 
 ---
