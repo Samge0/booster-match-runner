@@ -32,6 +32,7 @@ A sidebar panel for **Booster Studio** that runs **3v3 robot soccer matches** be
 
 | Plugin version | Booster Studio | sim image (default) | Notes |
 |---|---|---|---|
+| 0.2.1 | **1.9.10** | auto-detected (any tag) | Reload-safe auto-end, tag-agnostic container detection, headless button-state fixes, settings-first config |
 | 0.2.0 | **1.9.10** | `virtual-robot:0.6.5-beta` | Duplicate-ID upload with custom id/name, agent manage/delete, reload-safe pickers |
 | 0.1.0 | **1.9.10** | `virtual-robot:0.6.5-beta` | i18n (EN/ZH), new icon, GitHub Actions release pipeline |
 
