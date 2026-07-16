@@ -10,9 +10,9 @@
 
 | 项 | 值 | 出处 |
 |---|---|---|
-| 仿真镜像（默认） | `booster-robotics-registry.cn-beijing.cr.aliyuncs.com/virtual-robot/virtual-robot:0.6.5-beta` | `package.json` → `boosterMatch.simImage` |
+| 仿真镜像（默认空，兜底匹配） | 留空 → 兜底 `virtual-robot/virtual-robot`（任意版本）；可填完整 image:tag 锁定版本 | `package.json` → `boosterMatch.simImage` |
 | Game Control 端口 | `38383`（容器内） | `boosterMatch.gameControlPort` |
-| 容器定位方式 | 显式 `containerName` > 按 `simImage` 自动 `docker ps --filter ancestor=<image>` 取第一个 > 缓存 | `src/docker.ts` `resolveContainer()` |
+| 容器定位方式 | 显式 `containerName` > 按 `simImage` 子串匹配（running 优先，tag 无关）> 兜底 `virtual-robot/virtual-robot` > 缓存 | `src/docker.ts` `resolveContainer()` |
 | 启动容器 | `docker start <name>` | `startSimContainer()` |
 
 > **关键点**：HTTP API 跑在**容器内** `127.0.0.1:38383`，宿主机访问不到。本插件所有 API 调用都是 `docker exec <container> bash -c "curl ..."` 走容器内部 curl。

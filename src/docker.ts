@@ -13,6 +13,10 @@ function getConfig(): vscode.WorkspaceConfiguration {
 /** Cached auto-detected container name (cleared only on process restart). */
 let cachedContainerName = "";
 
+/** Fallback image substring when simImage is unset / does not match anything.
+ *  Matches any version of the Booster virtual-robot sim image. */
+const VIRTUAL_ROBOT_IMAGE = "virtual-robot/virtual-robot";
+
 /** Run `docker <args>` and return stdout. */
 function runDocker(args: string[], timeoutMs: number): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -23,17 +27,30 @@ function runDocker(args: string[], timeoutMs: number): Promise<string> {
 }
 
 /** Resolve the sim container: explicit config > auto-detected by sim image > empty.
- *  Auto-detection runs `docker ps --filter ancestor=<simImage>` and caches the
- *  first match so repeated operations don't re-query Docker. */
+ *  Auto-detection lists all containers (image + name + state), prefers running
+ *  ones, then matches by the configured simImage (substring, tag-agnostic) and
+ *  falls back to VIRTUAL_ROBOT_IMAGE. First match is cached so repeated
+ *  operations don't re-query Docker. */
 async function resolveContainer(): Promise<string> {
     const configured = getConfig().get<string>("containerName", "");
     if (configured) { return configured; }
     if (cachedContainerName) { return cachedContainerName; }
     try {
-        const simImage = getConfig().get<string>("simImage", "");
-        if (!simImage) { return ""; }
-        const out = await runDocker(["ps", "-a", "--format", "{{.Names}}", "--filter", `ancestor=${simImage}`], 10000);
-        const name = out.split("\n").map(s => s.trim()).filter(Boolean)[0] || "";
+        const out = await runDocker(["ps", "-a", "--format", "{{.Image}}\t{{.Names}}\t{{.State}}"], 10000);
+        const rows = out.split("\n")
+            .map(s => s.trim())
+            .filter(Boolean)
+            .map(line => {
+                const [image, name, state] = line.split("\t");
+                return { image: image || "", name: name || "", running: (state || "").toLowerCase() === "running" };
+            });
+        if (!rows.length) { return ""; }
+        // Running containers first so a live sim wins over a stopped one.
+        rows.sort((a, b) => (a.running === b.running ? 0 : a.running ? -1 : 1));
+        const simImage = getConfig().get<string>("simImage", "").trim();
+        const matchBy = (needle: string) => rows.find(r => r.image.includes(needle));
+        const hit = (simImage ? matchBy(simImage) : undefined) || matchBy(VIRTUAL_ROBOT_IMAGE);
+        const name = hit?.name || "";
         if (name) { cachedContainerName = name; }
         return name;
     } catch {

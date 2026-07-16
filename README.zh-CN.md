@@ -96,7 +96,7 @@ npx vsce package --no-git-tag-version --allow-missing-repository
 | 配置项 | 默认值 | 说明 |
 |---|---|---|
 | `boosterMatch.containerName` | `""` | Docker 容器名；为空时按 `simImage` 自动探测。 |
-| `boosterMatch.simImage` | `booster-robotics-registry.cn-beijing.cr.aliyuncs.com/virtual-robot/virtual-robot:0.6.5-beta` | 用于定位/启动仿真容器的镜像。 |
+| `boosterMatch.simImage` | `""` | 可选，用于自动探测仿真容器的镜像名（子串匹配）。留空则兜底匹配 `virtual-robot/virtual-robot`（任意版本）；填完整 image:tag 可锁定指定版本。 |
 | `boosterMatch.gameControlPort` | `38383` | **容器内** game-control HTTP API 端口。 |
 | `boosterMatch.defaultOpponent` | `com.booster.default3v3ai` | 默认蓝方 agent id。 |
 | `boosterMatch.matchLength` | `0` | 开赛后经过该秒数自动结束单场。`0` = 不启用（跑到仿真结束或手动点 End）。 |

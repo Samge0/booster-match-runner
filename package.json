@@ -94,36 +94,36 @@
           "default": 0,
           "markdownDescription": "Auto-end the match once one team leads by this many goals (either side). 0 = disabled. Example: `3` ends the match as soon as the score gap reaches 3."
         },
-        "boosterMatch.defaultOpponent": {
-          "order": 3,
-          "type": "string",
-          "default": "com.booster.default3v3ai",
-          "description": "Default opponent agent ID"
-        },
         "boosterMatch.hostAgentRoots": {
-          "order": 4,
+          "order": 3,
           "type": "array",
           "items": { "type": "string" },
           "default": [],
           "description": "Host directories to scan for .agent files (one level into each root + .agent files directly in the root). Empty by default; configure as needed."
         },
-        "boosterMatch.containerName": {
-          "order": 5,
+        "boosterMatch.defaultOpponent": {
+          "order": 4,
           "type": "string",
-          "default": "",
-          "description": "Docker container name running the simulation. Must be configured by the user."
+          "default": "com.booster.default3v3ai",
+          "description": "Default opponent agent ID"
         },
         "boosterMatch.gameControlPort": {
-          "order": 6,
+          "order": 5,
           "type": "number",
           "default": 38383,
           "description": "Game control HTTP API port inside the container"
         },
+        "boosterMatch.containerName": {
+          "order": 6,
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Docker container name running the simulation. Optional: if left empty, the container is auto-detected by image name (see `simImage`). To find the name yourself, run:\n\n`docker ps -a --format \"{{.Names}}\\t{{.Image}}\"`"
+        },
         "boosterMatch.simImage": {
           "order": 7,
           "type": "string",
-          "default": "booster-robotics-registry.cn-beijing.cr.aliyuncs.com/virtual-robot/virtual-robot:0.6.5-beta",
-          "description": "Docker image used to locate and start the sim container"
+          "default": "",
+          "markdownDescription": "Optional image name (substring match) used to auto-detect the sim container. Leave empty to fall back to `virtual-robot/virtual-robot` (matches any version). To pin a specific version, set the full image:tag, e.g.\n\n`booster-robotics-registry.cn-beijing.cr.aliyuncs.com/virtual-robot/virtual-robot:0.6.5-beta`"
         }
       }
     }
