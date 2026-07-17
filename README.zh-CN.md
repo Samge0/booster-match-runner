@@ -33,6 +33,7 @@
 
 | 插件版本 | Booster Studio | 仿真镜像（默认） | 备注 |
 |---|---|---|---|
+| 0.2.3 | **1.9.10** | 自动探测（任意 tag） | 可视化模式支持 Count、自动结束不再杀整个批次、start/end 重试、插件市场安装 |
 | 0.2.2 | **1.9.10** | 自动探测（任意 tag） | 机器人不动取证日志 + 诊断按钮、比赛中删除 agent 保护、错误提示重启 Studio |
 | 0.2.1 | **1.9.10** | 自动探测（任意 tag） | 重载后仍生效的自动结束、按镜像名自动探测容器、无头模式按钮状态修复、配置项移至设置页 |
 | 0.2.0 | **1.9.10** | `virtual-robot:0.6.5-beta` | 重复 ID 上传支持自定义 id/名称、agent 管理与删除、重载后恢复队伍选择 |
@@ -65,7 +66,11 @@
 
 ## 📦 安装方式
 
-### 方式 A — 从 Release 下载（推荐）
+### 方式 A — 从插件市场安装（推荐）
+
+在 Booster Studio 中打开 **扩展** 视图（`Ctrl+Shift+X` / `Cmd+Shift+X`），搜索 **Booster Match Runner**，点击 **Install** 即可。
+
+### 方式 B — 从 Release 下载（.vsix）
 
 1. 进入项目的 **Releases** 页面，下载最新的 `booster-match-runner-<版本>.vsix`。
 2. 安装到 Booster Studio，二选一：
@@ -79,13 +84,13 @@
      ```
 3. 重新加载窗口，活动栏会出现 **Match Runner** 图标。
 
-### 方式 B — 源码编译
+### 方式 C — 源码编译
 
 ```bash
 npm install
 npm run compile
 npx vsce package --no-git-tag-version --allow-missing-repository
-# 然后按方式 A 安装生成的 .vsix
+# 然后按方式 B 安装生成的 .vsix
 ```
 
 > fork 仓库 + 流水线编译的方式见 [自定义编译](#-自定义编译与流水线发布)。
