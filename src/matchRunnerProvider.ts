@@ -182,7 +182,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             case "refresh": await this.refresh(); break;
             case "selectRed": this.selection.red = msg.agentId; break;
             case "selectBlue": this.selection.blue = msg.agentId; break;
-            case "startVisual": await this.startVisualMatch(); break;
+            case "startVisual": await this.startVisualMatch(msg.count || 1); break;
             case "startMatch": await this.startMatch(msg.count || 1); break;
             case "endMatch": await this.endMatch(); break;
             case "openSim": await this.openSimulator(); break;
@@ -338,7 +338,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         vscode.window.showInformationMessage("Click the robot icon in Booster Studio sidebar, then Run.");
     }
 
-    async startVisualMatch() {
+    async startVisualMatch(count = 1) {
         this.currentMode = MODE_VISUAL;
         if (!(await this.checkNotRunning())) { return; }
         if (!this.selection.red || !this.selection.blue) {
@@ -347,24 +347,37 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         this.isRunning = true;
         this.startingNew = true;
         this.postMessage({ type: "matchStarting", mode: this.currentMode });
-        await this.resetEventTracking();
-        const redName = this.agents.find((a) => a.id === this.selection.red)?.name || this.selection.red;
-        const blueName = this.agents.find((a) => a.id === this.selection.blue)?.name || this.selection.blue;
         this.output.show();
-        this.output.appendLine(`\n=== VISUAL: ${redName} vs ${blueName} ===\n`);
         try {
+            // Open the simulator UI once for the whole batch.
             this.postMessage({ type: "status_text", text: "Opening UI view (~60s)..." });
             try { await vscode.commands.executeCommand("booster.agent.run"); }
             catch (e: any) { this.output.appendLine("booster.agent.run: " + e.message); }
             const { team1Id, team2Id } = await this.deployAndClone();
-            this.postMessage({ type: "status_text", text: "Starting runner..." });
-            await this.restartRunnerWithTeams(team1Id, team2Id);
-            this.postMessage({ type: "status_text", text: "Starting match!" });
-            await apiStartMatch();
-            this.startingNew = false;
-            this.postMessage({ type: "matchStarted", redName, blueName, mode: this.currentMode });
-            await this.monitorMatch();
-            await this.autoSaveRecord(MODE_VISUAL);
+            if (!this.isRunning) { return; }
+            const redName = this.agents.find((a) => a.id === this.selection.red)?.name || this.selection.red;
+            const blueName = this.agents.find((a) => a.id === this.selection.blue)?.name || this.selection.blue;
+            this.output.appendLine(`\n=== VISUAL x${count}: ${redName} vs ${blueName} ===\n`);
+            for (let i = 0; i < count; i++) {
+                if (!this.isRunning) { break; }
+                this.postMessage({ type: "batchProgress", current: i + 1, total: count });
+                this.output.appendLine(`\n--- Match ${i + 1}/${count} ---`);
+                await this.resetEventTracking();
+                this.postMessage({ type: "status_text", text: "Starting runner..." });
+                await this.restartRunnerWithTeams(team1Id, team2Id);
+                this.postMessage({ type: "status_text", text: "Starting match!" });
+                await apiStartMatch();
+                this.startingNew = false;
+                this.postMessage({ type: "matchStarted", redName, blueName, mode: this.currentMode });
+                await this.monitorMatch();
+                await this.autoSaveRecord(MODE_VISUAL);
+                if (!this.isRunning) { break; }
+                if (i < count - 1) {
+                    this.output.appendLine("  Ending match and cleaning up before next...");
+                    try { await apiEndMatch(); } catch { /* already ended */ }
+                    await new Promise((r) => setTimeout(r, 3000));
+                }
+            }
         } catch (err: any) {
             this.output.appendLine("ERROR: " + err.message);
             vscode.window.showErrorMessage("Match failed: " + err.message);
