@@ -1296,6 +1296,7 @@ function applyLang(){
   setText("optRed",T("loading"));
   setText("optBlue",T("loading"));
   document.getElementById("btnRecords").title=T("records");
+  var ce=document.getElementById("count");if(ce)ce.title=T("countTip");
   document.getElementById("langBtn").textContent=I18N.lang==="en"?"中":"EN";
   var sb=document.getElementById("settingsBtn");if(sb)sb.title=T("settings");
   rs(lastStatus);
