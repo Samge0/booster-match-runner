@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.4
+
+- **Fix: "robots don't move" after End → Start (leftover `ros2 launch` parents)** — `ros2 launch <pkg>` is the **parent** of `pyagent_x86`, so the existing `pkill pyagent_x86` only killed the child node and left the `ros2 launch` parent orphaned (its cgroup had already been `rm -rf`'d, so it ran on unmanaged). Those orphans kept holding the ROS2 node / package / topic names, so the next match's agents couldn't bind them and the robots stayed still. `/match/end` also does NOT destroy team sandboxes, so each End without a manual restart accumulated another pair of orphans. `endMatch()` and the start-of-match cleanup now kill leftover team-agent `ros2 launch` + `pyagent` processes (precisely excluding the `booster_agent_manager` daemon and the `com.boosterobotics.default` demo, matched in both dotted-path and underscored-package forms). End now leaves the container clean (just agent_manager + default) and the next Start binds cleanly.
+- This cleanup runs **only at End and right before a new match starts** — never during a live match. This is deliberately different from the pre-flight "conflicting agent" check removed in 0.2.2, which guessed which launches were stale and could mis-flag the teams currently playing.
+- **Count tooltip warns about reload** — hovering the **Count** input now shows a hint that reloading the window cancels the remaining batch (the match itself runs in the container and is unaffected, but the batch loop lives in the IDE and does not survive a window reload).
+- **Batch end kills the last match's team agents** — when a Count>1 batch finishes (or is aborted), the final match's team-agent `ros2 launch` processes are now killed too, so they don't leak into the next batch. (Between matches, `restartRunnerWithTeams` already cleaned; only the final match was left behind.)
+- **Start cleans up leftover agents up front** — clicking **Start** (visual or headless) now kills any leftover team-agent processes before deploying/restarting, so agents orphaned by a window reload (which breaks the in-process batch loop, leaving the last match's agents un-killed) don't hold the ROS2 namespace and block the new match.
+- **Community links in README** — added a Community section pointing to the official Booster Robotics developer channels (Feishu group / Discord / booster.tech).
+- **Records button label** — the 📋 button next to **Count** now shows a "Records" / "比赛记录" label beside the icon (was icon-only).
+
 ## 0.2.3
 
 - **Count now works in visual mode** — **Start Match + UI** honors the **Count** field and runs a multi-match queue just like headless (the simulator UI opens once for the whole batch). Previously Count was silently ignored in visual mode and only one match ever ran.

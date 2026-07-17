@@ -348,6 +348,14 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         this.startingNew = true;
         this.postMessage({ type: "matchStarting", mode: this.currentMode });
         this.output.show();
+        // Kill any leftover team-agent processes from a previous run BEFORE
+        // starting fresh. Especially needed after a window reload: reload
+        // restarts the extension, breaking the in-process batch loop, so the
+        // last match's team agents were never killed and keep holding their
+        // ROS2 node/package names. Idempotent; preserves booster_agent_manager
+        // and com_boosterobotics_default.
+        this.output.appendLine("[MatchRunner] Cleaning up leftover team agents...");
+        await this.killTeamAgentLaunches();
         try {
             // Open the simulator UI once for the whole batch.
             this.postMessage({ type: "status_text", text: "Opening UI view (~60s)..." });
@@ -404,6 +412,14 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         this.startingNew = true;
         this.postMessage({ type: "matchStarting", mode: this.currentMode });
         this.output.show();
+        // Kill any leftover team-agent processes from a previous run BEFORE
+        // starting fresh. Especially needed after a window reload: reload
+        // restarts the extension, breaking the in-process batch loop, so the
+        // last match's team agents were never killed and keep holding their
+        // ROS2 node/package names. Idempotent; preserves booster_agent_manager
+        // and com_boosterobotics_default.
+        this.output.appendLine("[MatchRunner] Cleaning up leftover team agents...");
+        await this.killTeamAgentLaunches();
         try {
             const { team1Id, team2Id } = await this.deployAndClone();
             if (!this.isRunning) { return; }
@@ -1234,7 +1250,7 @@ select{width:100%;padding:5px 8px;background:var(--vscode-dropdown-background);c
 <div class="tr"><div class="dot r"></div><select id="rsel" onchange="sel('red',this.value)"><option value="" id="optRed">Loading...</option></select></div>
 <div class="tr"><div class="dot b"></div><select id="bsel" onchange="sel('blue',this.value)"><option value="" id="optBlue">Loading...</option></select></div></div>
 <div class="section">
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:11px;opacity:.7;width:3em" id="lblCount">Count</span><input id="count" type="number" min="1" max="999" value="1" style="flex:1;padding:5px 8px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border);border-radius:3px;font-size:12px"><span id="progress" style="font-size:11px;opacity:.7;min-width:34px;text-align:center"></span><button class="btn s" id="btnRecords" style="flex:0 0 auto;padding:5px 10px;font-size:13px" onclick="s('showRecords')" title="Match records">&#128203;</button></div>
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:11px;opacity:.7;width:3em" id="lblCount">Count</span><input id="count" type="number" min="1" max="999" value="1" style="flex:1;padding:5px 8px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border);border-radius:3px;font-size:12px"><span id="progress" style="font-size:11px;opacity:.7;min-width:34px;text-align:center"></span><button class="btn s" id="btnRecords" style="flex:0 0 auto;width:auto;padding:5px 0 5px 10px;font-size:13px" onclick="s('showRecords')" title="Match records">&#128203; <span id="t_btnRecords">Records</span></button></div>
 <button class="btn" id="b1" onclick="sendStart('startVisual')">&#127944; <span id="t_b1">Start Match + UI</span></button>
 <button class="btn s" id="b2" onclick="sendStart('startMatch')">&#9881; <span id="t_b2">Start Headless</span></button>
 <div style="display:flex;gap:4px;margin-top:4px">
@@ -1296,6 +1312,7 @@ function applyLang(){
   setText("optRed",T("loading"));
   setText("optBlue",T("loading"));
   document.getElementById("btnRecords").title=T("records");
+  setText("t_btnRecords",T("records"));
   var ce=document.getElementById("count");if(ce)ce.title=T("countTip");
   document.getElementById("langBtn").textContent=I18N.lang==="en"?"中":"EN";
   var sb=document.getElementById("settingsBtn");if(sb)sb.title=T("settings");

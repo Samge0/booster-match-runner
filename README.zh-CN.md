@@ -33,6 +33,7 @@
 
 | 插件版本 | Booster Studio | 仿真镜像（默认） | 备注 |
 |---|---|---|---|
+| 0.2.4 | **1.9.10** | 自动探测（任意 tag） | 修复：End→Start 后机器人不动——End 与每场启动前清理残留的 team `ros2 launch` 父进程 |
 | 0.2.3 | **1.9.10** | 自动探测（任意 tag） | 可视化模式支持 Count、自动结束不再杀整个批次、start/end 重试、插件市场安装 |
 | 0.2.2 | **1.9.10** | 自动探测（任意 tag） | 机器人不动取证日志 + 诊断按钮、比赛中删除 agent 保护、错误提示重启 Studio |
 | 0.2.1 | **1.9.10** | 自动探测（任意 tag） | 重载后仍生效的自动结束、按镜像名自动探测容器、无头模式按钮状态修复、配置项移至设置页 |
@@ -152,6 +153,18 @@ git push origin v0.1.0
 这个插件比较复杂（涉及 Docker、ROS2 环境、容器内 HTTP API）。**遇到问题，建议优先问 AI**——把报错加上 [docs/booster-internals.md](./docs/booster-internals.md) 里的相关上下文（镜像、路径、API、runner 启动命令、设计原理）一起发给 AI。那份文档本来就是为「喂给 AI」而写的，方便 AI 帮你修 bug 或加功能。
 
 文档末尾还附了一段现成的 prompt，可以让本地 AI **自动编译并把插件安装到 Booster Studio**。
+
+---
+
+## 💬 社群
+
+本插件运行在 **Booster Studio**（加速进化 Booster Robotics 出品的具身开发 IDE）之上。加速进化是一家专注为人形机器人（T1 / K1）打造开发者平台的公司，并开源了本插件所驱动的足球技术栈。加入 Booster 开发者社群可获取最新资讯、机器人开源资料与技术交流：
+
+| 飞书群 | Discord | 官网 |
+|:---:|:---:|:---:|
+| <img src="https://github.com/user-attachments/assets/41885d6f-fca4-4acc-bab4-6a12fe5bbd55" alt="Booster Studio 开发者社群" width="128"> | <img src="https://github.com/user-attachments/assets/c2c24437-9cda-4bc8-a72e-100031e77fca" alt="Discord 二维码" width="128"> | <img src="https://github.com/user-attachments/assets/2a1e1f21-95b7-4dae-a20e-019fbe46274a" alt="Booster官网二维码" width="128"> |
+| [Booster Studio 开发者社群](https://applink.feishu.cn/client/chat/chatter/add_by_link?link_token=cd0g4e4b-661a-4ab3-8555-f4be56b173ae) | [Booster Discord](https://discord.gg/dCJARfRfe) | [booster.tech](https://www.booster.tech/) |
+
 
 ---
 
