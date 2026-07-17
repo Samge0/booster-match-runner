@@ -348,6 +348,14 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         this.startingNew = true;
         this.postMessage({ type: "matchStarting", mode: this.currentMode });
         this.output.show();
+        // Kill any leftover team-agent processes from a previous run BEFORE
+        // starting fresh. Especially needed after a window reload: reload
+        // restarts the extension, breaking the in-process batch loop, so the
+        // last match's team agents were never killed and keep holding their
+        // ROS2 node/package names. Idempotent; preserves booster_agent_manager
+        // and com_boosterobotics_default.
+        this.output.appendLine("[MatchRunner] Cleaning up leftover team agents...");
+        await this.killTeamAgentLaunches();
         try {
             // Open the simulator UI once for the whole batch.
             this.postMessage({ type: "status_text", text: "Opening UI view (~60s)..." });
@@ -385,6 +393,12 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             this.isRunning = false;
             this.startingNew = false;
             this.postMessage({ type: "matchEnded" });
+            // Batch finished (or aborted): clean up the FINAL match's team-agent
+            // processes so they don't leak into the next batch / next End→Start.
+            // restartRunnerWithTeams already cleans BETWEEN matches; this catches
+            // the last one. Idempotent — harmless if endMatch already killed them.
+            try { await apiEndMatch(); } catch { /* already ended */ }
+            await this.killTeamAgentLaunches();
         }
     }
 
@@ -398,6 +412,14 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         this.startingNew = true;
         this.postMessage({ type: "matchStarting", mode: this.currentMode });
         this.output.show();
+        // Kill any leftover team-agent processes from a previous run BEFORE
+        // starting fresh. Especially needed after a window reload: reload
+        // restarts the extension, breaking the in-process batch loop, so the
+        // last match's team agents were never killed and keep holding their
+        // ROS2 node/package names. Idempotent; preserves booster_agent_manager
+        // and com_boosterobotics_default.
+        this.output.appendLine("[MatchRunner] Cleaning up leftover team agents...");
+        await this.killTeamAgentLaunches();
         try {
             const { team1Id, team2Id } = await this.deployAndClone();
             if (!this.isRunning) { return; }
@@ -427,6 +449,12 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             this.isRunning = false;
             this.startingNew = false;
             this.postMessage({ type: "matchEnded" });
+            // Batch finished (or aborted): clean up the FINAL match's team-agent
+            // processes so they don't leak into the next batch / next End→Start.
+            // restartRunnerWithTeams already cleans BETWEEN matches; this catches
+            // the last one. Idempotent — harmless if endMatch already killed them.
+            try { await apiEndMatch(); } catch { /* already ended */ }
+            await this.killTeamAgentLaunches();
         }
     }
 
@@ -478,6 +506,12 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
         this.postMessage({ type: "matchEnded" });
         try { await apiEndMatch(); }
         catch { /* ignore */ }
+        // /match/end only stops game-control scoring — it does NOT destroy the
+        // team sandboxes, so the team-agent `ros2 launch` processes keep running
+        // as dirty state that blocks the next match's agents from binding their
+        // ROS2 node/package names (robots then don't move). Kill them so End
+        // leaves the container clean (just agent_manager + default).
+        await this.killTeamAgentLaunches();
     }
 
     async uploadAgentFile() {
@@ -665,10 +699,44 @@ idEl.focus();idEl.select();
         } catch { return false; }
     }
 
+    /** Kill leftover team-agent processes from a previous match — both the
+     *  `ros2 launch <pkg> launch.py` parents AND their `pyagent_x86` children —
+     *  while preserving the system daemon (`booster_agent_manager`) and the
+     *  default demo agent (`com.boosterobotics.default`, guarded by
+     *  agent_manager).
+     *
+     *  WHY this is needed: `ros2 launch` is the PARENT of pyagent, so the
+     *  existing `pkill pyagent_x86` only kills the child node and leaves the
+     *  `ros2 launch` parent behind. Its cgroup was already `rm -rf`'d, so it
+     *  runs on as an unmanaged orphan still holding the ROS2 node / package /
+     *  topic names. On the next match the new agent cannot bind those names →
+     *  pyagent fails to start → robots don't move. `/match/end` also does NOT
+     *  destroy team sandboxes, so without this the orphans accumulate.
+     *
+     *  The `boosterobotics.*default` exclusion matches BOTH the dotted agent
+     *  path (com.boosterobotics.default pyagent) and the underscored ROS2
+     *  package name (com_boosterobotics_default launch) — without it the
+     *  default's pyagent (dotted path) would be mis-killed. Idempotent and
+     *  harmless when nothing matches (xargs -r skips empty input). */
+    private async killTeamAgentLaunches(): Promise<void> {
+        await dockerExec(
+            "ps -eo pid,args | grep -E 'ros2 launch|pyagent' | " +
+            "grep -vE 'booster_agent_manager|boosterobotics.*default|grep' | " +
+            "awk '{print $1}' | xargs -r kill -9 2>/dev/null; true",
+            8000
+        ).catch(() => {});
+    }
+
     private async restartRunnerWithTeams(team1: string, team2: string): Promise<void> {
         this.saveCurrentTeams(team1, team2);
         this.output.appendLine("  Stopping old runner...");
         await dockerExec("pkill -9 -f football3v3; pkill -9 -f 'run.py.*teams'; pkill -9 -f pyagent_x86; sleep 2", 10000).catch(() => {});
+        // pkill pyagent_x86 above only kills the agent NODES (children); their
+        // `ros2 launch` parents survive as orphans (cgroup already removed) and
+        // keep holding the ROS2 node/package names, so the new match's agents
+        // can't bind and robots don't move. Kill the launch parents too.
+        // Defensive: also covers reload/crash cases where endMatch never ran.
+        await this.killTeamAgentLaunches();
         // Clean stale sandboxes leaked by previous crashed runs (keep team_1 /
         // team_2 for the new run). /run is a tmpfs, so leaked sandboxes from
         // crashed runs accumulate and can starve the next sandbox.create().
@@ -1182,7 +1250,7 @@ select{width:100%;padding:5px 8px;background:var(--vscode-dropdown-background);c
 <div class="tr"><div class="dot r"></div><select id="rsel" onchange="sel('red',this.value)"><option value="" id="optRed">Loading...</option></select></div>
 <div class="tr"><div class="dot b"></div><select id="bsel" onchange="sel('blue',this.value)"><option value="" id="optBlue">Loading...</option></select></div></div>
 <div class="section">
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:11px;opacity:.7;width:3em" id="lblCount">Count</span><input id="count" type="number" min="1" max="999" value="1" style="flex:1;padding:5px 8px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border);border-radius:3px;font-size:12px"><span id="progress" style="font-size:11px;opacity:.7;min-width:34px;text-align:center"></span><button class="btn s" id="btnRecords" style="flex:0 0 auto;padding:5px 10px;font-size:13px" onclick="s('showRecords')" title="Match records">&#128203;</button></div>
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:11px;opacity:.7;width:3em" id="lblCount">Count</span><input id="count" type="number" min="1" max="999" value="1" style="flex:1;padding:5px 8px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border);border-radius:3px;font-size:12px"><span id="progress" style="font-size:11px;opacity:.7;min-width:34px;text-align:center"></span><button class="btn s" id="btnRecords" style="flex:0 0 auto;width:auto;padding:5px 0 5px 10px;font-size:13px" onclick="s('showRecords')" title="Match records">&#128203; <span id="t_btnRecords">Records</span></button></div>
 <button class="btn" id="b1" onclick="sendStart('startVisual')">&#127944; <span id="t_b1">Start Match + UI</span></button>
 <button class="btn s" id="b2" onclick="sendStart('startMatch')">&#9881; <span id="t_b2">Start Headless</span></button>
 <div style="display:flex;gap:4px;margin-top:4px">
@@ -1244,6 +1312,8 @@ function applyLang(){
   setText("optRed",T("loading"));
   setText("optBlue",T("loading"));
   document.getElementById("btnRecords").title=T("records");
+  setText("t_btnRecords",T("records"));
+  var ce=document.getElementById("count");if(ce)ce.title=T("countTip");
   document.getElementById("langBtn").textContent=I18N.lang==="en"?"中":"EN";
   var sb=document.getElementById("settingsBtn");if(sb)sb.title=T("settings");
   rs(lastStatus);

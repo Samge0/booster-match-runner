@@ -33,6 +33,7 @@ A sidebar panel for **Booster Studio** that runs **3v3 robot soccer matches** be
 
 | Plugin version | Booster Studio | sim image (default) | Notes |
 |---|---|---|---|
+| 0.2.4 | **1.9.10** | auto-detected (any tag) | Fix: robots don't move after End→Start — leftover team `ros2 launch` parents now killed at End and before each match |
 | 0.2.3 | **1.9.10** | auto-detected (any tag) | Count works in visual mode, auto-end no longer kills the batch, retried start/end, marketplace install |
 | 0.2.2 | **1.9.10** | auto-detected (any tag) | Bot-freeze forensics logging + Diagnose button, mid-match delete guard, restart-Studio error hints |
 | 0.2.1 | **1.9.10** | auto-detected (any tag) | Reload-safe auto-end, tag-agnostic container detection, headless button-state fixes, settings-first config |
@@ -152,6 +153,17 @@ git push origin v0.1.0
 This extension is complex (Docker, ROS2 env, in-container HTTP API). **When something breaks, ask an AI first** — paste the error plus the relevant context from [docs/booster-internals.md](./docs/booster-internals.md) (image, paths, API, runner command, design). That doc is specifically written to be fed to an AI so it can fix bugs or add features for you.
 
 There's even a ready-made prompt at the bottom of that doc that lets a local AI **compile and install** the extension into Booster Studio for you.
+
+---
+
+## 💬 Community
+
+This panel runs on top of **Booster Studio** — the embodied-development IDE from **Booster Robotics (加速进化)**. Booster Robotics builds a developer platform for humanoid robots (T1 / K1) and open-sources the soccer stack this plugin drives. Join the Booster developer community for the latest news, robot open-source resources, and technical discussion:
+
+| Feishu | Discord | Official site |
+|:---:|:---:|:---:|
+| <img src="https://github.com/user-attachments/assets/41885d6f-fca4-4acc-bab4-6a12fe5bbd55" alt="Booster Studio Dev Community" width="128"> | <img src="https://github.com/user-attachments/assets/c2c24437-9cda-4bc8-a72e-100031e77fca" alt="Discord" width="128"> | <img src="https://github.com/user-attachments/assets/2a1e1f21-95b7-4dae-a20e-019fbe46274a" alt="booster.tech" width="128"> |
+| [Booster Studio Dev Community](https://applink.feishu.cn/client/chat/chatter/add_by_link?link_token=cd0g4e4b-661a-4ab3-8555-f4be56b173ae) | [Booster Discord](https://discord.gg/dCJARfRfe) | [booster.tech](https://www.booster.tech/) |
 
 ---
 
