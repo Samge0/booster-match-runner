@@ -5,14 +5,33 @@
 import { gameControlApi } from "./docker";
 import { MatchStatus } from "./types";
 
-/** Start a match via HTTP API. */
-export async function startMatch(): Promise<void> {
-    await gameControlApi("/match/start", "POST", 10000);
+/** Call the game-control API with exponential-backoff retries. Used for
+ *  state-changing calls (start/end) where a transient failure leaves the sim
+ *  in a bad state: a missed start means the match never begins (monitorMatch
+ *  then stalls), a missed end leaves a stale match corrupting the next one in
+ *  a batch. Final error is propagated; callers catch it. */
+async function apiCallWithRetry(path: string, method: string, timeoutMs: number): Promise<any> {
+    const backoff = [500, 1000, 2000];
+    let lastErr: unknown;
+    for (let i = 0; i <= backoff.length; i++) {
+        try {
+            return await gameControlApi(path, method, timeoutMs);
+        } catch (err) {
+            lastErr = err;
+            if (i < backoff.length) { await new Promise((r) => setTimeout(r, backoff[i])); }
+        }
+    }
+    throw lastErr;
 }
 
-/** End the current match via HTTP API. */
+/** Start a match via HTTP API (with retries). */
+export async function startMatch(): Promise<void> {
+    await apiCallWithRetry("/match/start", "POST", 10000);
+}
+
+/** End the current match via HTTP API (with retries). */
 export async function endMatch(): Promise<void> {
-    await gameControlApi("/match/end", "POST", 10000);
+    await apiCallWithRetry("/match/end", "POST", 10000);
 }
 
 const num = (v: any): number | null =>

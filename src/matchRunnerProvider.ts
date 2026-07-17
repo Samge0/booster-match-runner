@@ -1104,7 +1104,12 @@ idEl.focus();idEl.select();
                 this.autoEnded = true;
                 this.appendEarlyEndEvent(reason, status, leadGoals, matchLength);
                 this.output.appendLine(`Auto-end triggered (${reason}), ending match...`);
-                await this.endMatch();
+                // Only stop the sim — do NOT call this.endMatch(). endMatch sets
+                // isRunning=false, which would kill an in-progress batch (Count>1):
+                // the loop's `if (!isRunning) break` would abort the whole queue
+                // after the first match. monitorMatch sees isFinished on the next
+                // poll and exits on its own, so the batch can start the next match.
+                try { await apiEndMatch(); } catch { /* ignore */ }
             }
         }
         if (!active) { return; }
