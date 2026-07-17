@@ -33,6 +33,7 @@ A sidebar panel for **Booster Studio** that runs **3v3 robot soccer matches** be
 
 | Plugin version | Booster Studio | sim image (default) | Notes |
 |---|---|---|---|
+| 0.2.3 | **1.9.10** | auto-detected (any tag) | Count works in visual mode, auto-end no longer kills the batch, retried start/end, marketplace install |
 | 0.2.2 | **1.9.10** | auto-detected (any tag) | Bot-freeze forensics logging + Diagnose button, mid-match delete guard, restart-Studio error hints |
 | 0.2.1 | **1.9.10** | auto-detected (any tag) | Reload-safe auto-end, tag-agnostic container detection, headless button-state fixes, settings-first config |
 | 0.2.0 | **1.9.10** | `virtual-robot:0.6.5-beta` | Duplicate-ID upload with custom id/name, agent manage/delete, reload-safe pickers |
@@ -65,7 +66,11 @@ The 3v3 match runtime this extension talks to — the game-control HTTP API on p
 
 ## 📦 Installation
 
-### Option A — From a Release (recommended)
+### Option A — From the extension marketplace (recommended)
+
+Open the **Extensions** view in Booster Studio (`Ctrl+Shift+X` / `Cmd+Shift+X`), search for **Booster Match Runner**, and click **Install**.
+
+### Option B — From a Release (.vsix)
 
 1. Go to the project's **Releases** page and download the latest `booster-match-runner-<ver>.vsix`.
 2. Install it into Booster Studio — either:
@@ -79,13 +84,13 @@ The 3v3 match runtime this extension talks to — the game-control HTTP API on p
      ```
 3. Reload the window. The **Match Runner** icon appears in the activity bar.
 
-### Option B — Build from source
+### Option C — Build from source
 
 ```bash
 npm install
 npm run compile
 npx vsce package --no-git-tag-version --allow-missing-repository
-# then install the produced .vsix as in Option A
+# then install the produced .vsix as in Option B
 ```
 
 > See [Custom builds](#-custom-builds--ci-releases) for fork-and-CI workflows.

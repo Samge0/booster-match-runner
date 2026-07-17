@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.3
+
+- **Count now works in visual mode** — **Start Match + UI** honors the **Count** field and runs a multi-match queue just like headless (the simulator UI opens once for the whole batch). Previously Count was silently ignored in visual mode and only one match ever ran.
+- **Auto-end no longer kills the whole batch** — the `matchLength` / `leadGoals` auto-end used to call `endMatch()` (which sets `isRunning=false`), aborting the entire Count>1 queue after the first match. It now stops only the current match (`apiEndMatch`); `monitorMatch` exits on its own when the sim reports finished, so the next match starts.
+- **Retried start/end HTTP calls** — `match/start` and `match/end` are now called with exponential backoff (500/1000/2000 ms, 4 attempts), so a transient game-control failure no longer leaves a match un-started or a stale match running into the next one.
+- **Installable from the extension marketplace** — search **Booster Match Runner** directly in Booster Studio's Extensions view (the previous `.vsix` / build-from-source paths still work).
+
 ## 0.2.2
 
 - **Bot-freeze forensics** — when a match start fails (`run.py` exits, or `/health` never goes ready within 75 s), the extension now captures the failure scene — `run.py` log tail, last `/health` response, sandbox dirs, and live `run.py` / `pyagent` / `ros2 launch` processes — to both the output channel and `~/.booster-match-runner/match-start-failure.log` (overwritten each failure), so an intermittent "robots don't move" can be diagnosed after the fact without shelling into the container mid-failure.
