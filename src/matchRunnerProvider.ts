@@ -15,6 +15,8 @@ import AdmZip from "adm-zip";
 import * as path from "path";
 import * as os from "os";
 import * as fs from "fs";
+import * as cp from "child_process";
+import { WindowRecorder } from "./windowRecorder";
 
 /** Path to game-control events.jsonl inside the container (fixed, not user-configurable). */
 const EVENTS_LOG_PATH = "/usr/local/booster_robot/booster_robocup_sim/logs/game-control/events.jsonl";
@@ -59,6 +61,8 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
     private autoEnded = false;
     private startingNew = false;
     private output: vscode.OutputChannel;
+    private windowRecorder: WindowRecorder | null = null;
+    private windowMp4Path: string | null = null;
 
     constructor(private readonly context: vscode.ExtensionContext) {
         this.output = vscode.window.createOutputChannel("Booster Match Runner");
@@ -191,6 +195,29 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             case "manageAgents": await this.manageAgents(); break;
             case "diagnose": await this.diagnoseEnvironment(); break;
             case "saveLog": await this.saveLog(); break;
+            case "toggleRecord": {
+                const cfg = vscode.workspace.getConfiguration("boosterMatch");
+                const cur = cfg.get<boolean>("recordVideo", false);
+                // Turning ON — require a working ffmpeg first; otherwise warn and stay off.
+                if (!cur && !(await this.detectFfmpeg())) {
+                    vscode.window.showWarningMessage(
+                        t("recordNoFfmpeg"),
+                        t("openReadme"),
+                    ).then((act) => {
+                        if (act === "Open README") {
+                            vscode.commands.executeCommand(
+                                "markdown.showPreview",
+                                vscode.Uri.file(this.context.asAbsolutePath("README.md")),
+                            );
+                        }
+                    });
+                    this.postMessage({ type: "recordVideoState", value: false });
+                    break;
+                }
+                await cfg.update("recordVideo", !cur, vscode.ConfigurationTarget.Global);
+                this.postMessage({ type: "recordVideoState", value: !cur });
+                break;
+            }
             case "showRecords": await this.showRecords(); break;
             case "openSettings": await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:samge.booster-match-runner"); break;
         }
@@ -373,11 +400,13 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
                 await this.resetEventTracking();
                 this.postMessage({ type: "status_text", text: "Starting runner..." });
                 await this.restartRunnerWithTeams(team1Id, team2Id);
+                await this.startWindowRecordingIfEnabled();
                 this.postMessage({ type: "status_text", text: "Starting match!" });
                 await apiStartMatch();
                 this.startingNew = false;
                 this.postMessage({ type: "matchStarted", redName, blueName, mode: this.currentMode });
                 await this.monitorMatch();
+                await this.stopWindowRecording();
                 await this.autoSaveRecord(MODE_VISUAL);
                 if (!this.isRunning) { break; }
                 if (i < count - 1) {
@@ -390,6 +419,7 @@ export class MatchRunnerProvider implements vscode.WebviewViewProvider {
             this.output.appendLine("ERROR: " + err.message);
             vscode.window.showErrorMessage("Match failed: " + err.message);
         } finally {
+            await this.stopWindowRecording();
             this.isRunning = false;
             this.startingNew = false;
             this.postMessage({ type: "matchEnded" });
@@ -1000,6 +1030,44 @@ idEl.focus();idEl.select();
         await fs.promises.writeFile(path.join(this.recordsDir(), "records.json"), JSON.stringify(records, null, 2), "utf8");
     }
 
+    /** Probe whether ffmpeg is runnable on the host PATH (required by video recording). */
+    private detectFfmpeg(): Promise<boolean> {
+        return new Promise((resolve) => {
+            cp.execFile("ffmpeg", ["-version"], { timeout: 5000 }, (err) => resolve(!err));
+        });
+    }
+
+    /** UI-mode window recording: crop a gdigrab desktop capture to the Booster
+     *  Studio window → direct MP4 (includes the score HUD + robot skins the
+     *  viewer shows). Window must stay foreground (gdigrab captures the screen). */
+    private async startWindowRecordingIfEnabled(): Promise<boolean> {
+        const cfg = vscode.workspace.getConfiguration("boosterMatch");
+        if (!cfg.get<boolean>("recordVideo", false)) { return false; }
+        const mp4 = path.join(this.recordsDir(), `match-${this.timestampName()}.mp4`);
+        this.windowRecorder = new WindowRecorder(this.context.asAbsolutePath(path.join("scripts", "window_rect.ps1")), this.context.asAbsolutePath(path.join("scripts", "window_rect.sh")));
+        this.output.appendLine(`  [rec-window] starting: ${path.basename(mp4)}`);
+        const ok = await this.windowRecorder.start(mp4).catch((e: any) => {
+            this.output.appendLine("  [rec-window] start failed: " + e.message); return false;
+        });
+        if (ok) {
+            this.windowMp4Path = mp4;
+        } else {
+            this.windowMp4Path = null;
+            this.windowRecorder = null;
+            this.output.appendLine("  [rec-window] did not start (needs a foreground Booster Studio window + ffmpeg on PATH).");
+        }
+        return ok;
+    }
+
+    private async stopWindowRecording(): Promise<void> {
+        const rec = this.windowRecorder;
+        if (!rec) { return; }
+        const ok = await rec.stop().catch(() => false);
+        this.windowRecorder = null;
+        if (ok && this.windowMp4Path) { this.output.appendLine(`  [rec-window] recorded temp: ${this.windowMp4Path}`); }
+        // windowMp4Path is kept so autoSaveRecord can rename it alongside the zip.
+    }
+
     /** Auto-save the just-finished match into the records dir and append to the index. */
     private async autoSaveRecord(mode: MatchMode): Promise<void> {
         try {
@@ -1012,12 +1080,23 @@ idEl.focus();idEl.select();
         catch { return; }
         await fs.promises.mkdir(this.recordsDir(), { recursive: true });
         const scoreSuffix = st ? `_${st.score.home}-${st.score.away}` : "";
-        const zipPath = path.join(this.recordsDir(), `match-${this.timestampName()}${scoreSuffix}.zip`);
+        const tsName = this.timestampName();
+        // match-<ts>_<red>_vs_<blue><score>.zip|.mp4 — sanitize team names for the filesystem.
+        const cleanName = (s: string) => s.replace(/[/\\:*?"<>|\s]+/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "") || "x";
+        const namePart = `_${cleanName(this.agentName(this.selection.red) || "Red")}_vs_${cleanName(this.agentName(this.selection.blue) || "Blue")}`;
+        const base = `match-${tsName}${namePart}${scoreSuffix}`;
+        const zipPath = path.join(this.recordsDir(), `${base}.zip`);
         try {
             zip.writeZip(zipPath);
         } catch (err: any) {
             this.output.appendLine("  Auto-save failed: " + err.message);
             return;
+        }
+        // Rename the UI-mode window recording so it sits next to the zip with the same name.
+        if (this.windowMp4Path && fs.existsSync(this.windowMp4Path)) {
+            const mp4Final = path.join(this.recordsDir(), `${base}.mp4`);
+            try { fs.renameSync(this.windowMp4Path, mp4Final); this.windowMp4Path = mp4Final; }
+            catch (err: any) { this.output.appendLine("  mp4 rename failed: " + err.message); }
         }
         const record: MatchRecord = {
             zipPath,
@@ -1208,6 +1287,7 @@ idEl.focus();idEl.select();
     }
 
     private getHtml(): string {
+        const recVideo = vscode.workspace.getConfiguration("boosterMatch").get<boolean>("recordVideo", false);
         return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);color:var(--vscode-foreground);padding:10px}
@@ -1251,6 +1331,7 @@ select{width:100%;padding:5px 8px;background:var(--vscode-dropdown-background);c
 <div class="tr"><div class="dot b"></div><select id="bsel" onchange="sel('blue',this.value)"><option value="" id="optBlue">Loading...</option></select></div></div>
 <div class="section">
 <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:11px;opacity:.7;width:3em" id="lblCount">Count</span><input id="count" type="number" min="1" max="999" value="1" style="flex:1;padding:5px 8px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border);border-radius:3px;font-size:12px"><span id="progress" style="font-size:11px;opacity:.7;min-width:34px;text-align:center"></span><button class="btn s" id="btnRecords" style="flex:0 0 auto;width:auto;padding:5px 0 5px 10px;font-size:13px" onclick="s('showRecords')" title="Match records">&#128203; <span id="t_btnRecords">Records</span></button></div>
+<label style="display:flex;align-items:center;gap:6px;margin:4px 0;font-size:12px;opacity:.85;cursor:pointer"><input type="checkbox" id="recChk" ${recVideo ? "checked" : ""} onclick="s('toggleRecord')"> <span id="t_rec">Record video (UI mode only)</span></label>
 <button class="btn" id="b1" onclick="sendStart('startVisual')">&#127944; <span id="t_b1">Start Match + UI</span></button>
 <button class="btn s" id="b2" onclick="sendStart('startMatch')">&#9881; <span id="t_b2">Start Headless</span></button>
 <div style="display:flex;gap:4px;margin-top:4px">
@@ -1270,7 +1351,7 @@ const v=acquireVsCodeApi();
 var panelState="idle";
 var startingMatch=false;
 var lastStatus=null,lastEvents=[];var lastTeams={red:{id:"",name:""},blue:{id:"",name:""}};
-var I18N={lang:"en",msg:{score:"Score",teams:"Teams",actions:"Actions",keyEvents:"Key Events",start:"Start",end:"End",count:"Count",records:"Match records",noEvents:"No events yet",starting:"Starting…",containerUnreachable:"Container unreachable",containerNotRunning:"Container not running.",startContainer:"Start Container",startMatchUi:"Start Match + UI",startHeadless:"Start Headless",ui:"UI",refresh:"Refresh",upload:"Upload",save:"Save",loading:"Loading...",noAgents:"No agents",preparing:"Preparing…",red:"Red",blue:"Blue",manageAgents:"Manage",startingContainer:"Starting container…"},states:{playing:"Playing",ready:"Ready",set:"Set",finished:"Finished"},events:{}};
+var I18N={lang:"en",msg:{score:"Score",teams:"Teams",actions:"Actions",keyEvents:"Key Events",start:"Start",end:"End",count:"Count",records:"Match records",noEvents:"No events yet",starting:"Starting…",containerUnreachable:"Container unreachable",containerNotRunning:"Container not running.",startContainer:"Start Container",startMatchUi:"Start Match + UI",startHeadless:"Start Headless",ui:"UI",refresh:"Refresh",upload:"Upload",save:"Save",loading:"Loading...",noAgents:"No agents",preparing:"Preparing…",red:"Red",blue:"Blue",manageAgents:"Manage",startingContainer:"Starting container…",recordVideo:"Record video (UI mode only)"},states:{playing:"Playing",ready:"Ready",set:"Set",finished:"Finished"},events:{}};
 function T(k){return I18N.msg[k]||k}
 function humanize(ty){return ty.split("_").map(function(w){return w?w.charAt(0).toUpperCase()+w.slice(1):w}).join(" ")}
 function evLabel(ty){return I18N.events[ty]||humanize(ty)}
@@ -1309,6 +1390,7 @@ function applyLang(){
   setText("t_refresh",T("refresh"));
   setText("t_upload",T("upload"));
   setText("t_save",T("save"));
+  setText("t_rec",T("recordVideo"));
   setText("optRed",T("loading"));
   setText("optBlue",T("loading"));
   document.getElementById("btnRecords").title=T("records");
@@ -1353,6 +1435,9 @@ case"matchEnded":
   d("b1",0);d("b2",0);d("b3",1);
   d("bSim",0);
   {var pg0=document.getElementById("progress");if(pg0)pg0.textContent="";}
+  break;
+case"recordVideoState":
+  {var rc=document.getElementById("recChk");if(rc)rc.checked=!!m.value;}
   break;
 }});
 function d(id,dis){document.getElementById(id).disabled=dis}

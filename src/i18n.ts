@@ -76,6 +76,9 @@ const MESSAGES: Record<Lang, Record<string, string>> = {
         diagTitle: "=== Environment Diagnosis ===",
         diagRos2: "ros2 launch processes (incl. booster_agent_manager)",
         diagSandboxes: "Stale historical sandboxes",
+        recordVideo: "Record video (requires UI mode and pinned match window)",
+        recordNoFfmpeg: "Record video needs `ffmpeg` on the host PATH. Install it (see README → Configuring ffmpeg) and try again.",
+        openReadme: "Open README",
     },
     zh: {
         score: "比分",
@@ -138,6 +141,9 @@ const MESSAGES: Record<Lang, Record<string, string>> = {
         diagTitle: "=== 环境诊断 ===",
         diagRos2: "ros2 launch 进程（含 booster_agent_manager）",
         diagSandboxes: "堆积的历史 sandbox",
+        recordVideo: "录制视频（仅 UI 模式 + 需要将比赛窗口置顶）",
+        recordNoFfmpeg: "录制视频需要宿主机 PATH 中有 `ffmpeg`。请先安装（见 README → 配置 ffmpeg）再试。",
+        openReadme: "打开 README",
     },
 };
 

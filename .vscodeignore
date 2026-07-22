@@ -9,3 +9,4 @@ docs/
 .cursor/
 .codex/
 *.vsix
+samples/
