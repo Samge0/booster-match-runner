@@ -22,3 +22,7 @@ Thumbs.db
 .codex/
 .cursor/
 .codegraph/
+samples/
+renderer/match_video*
+renderer/frame*.png
+renderer/shot*.png

@@ -6,6 +6,10 @@ A sidebar panel for **Booster Studio** that runs **3v3 robot soccer matches** be
 
 > The whole panel — every label, button and event name — can be switched between **English and Chinese** with one click. The language choice is remembered.
 
+<img width="443" height="280" alt="image" src="https://github.com/user-attachments/assets/09916441-fae8-4597-aec7-6417ff50ddb0" />
+
+<img width="423" height="360" alt="image" src="https://github.com/user-attachments/assets/b4cc2a9d-15b2-4c15-b8e6-2c4bb4c6a1ae" />
+
 ---
 
 ## ✨ Features
@@ -20,6 +24,7 @@ A sidebar panel for **Booster Studio** that runs **3v3 robot soccer matches** be
   - Every finished match is archived to `~/.booster-match-runner/matches/` (zip = summary + events + run log).
   - **Match records** picker: reveal a record in the file manager, or **export all to CSV** (Excel-friendly, UTF-8 BOM).
   - **Save log** — manually pack the current match into a zip.
+- **Video recording (UI mode)** — enable `boosterMatch.recordVideo` to capture each visual match as an MP4 of the Booster Studio window (the viewer, score and robot skins exactly as shown); saved next to the match record, with both team names in the filename. Needs `ffmpeg` on the host; the window must stay foreground.
 - **Upload `.agent`** packages straight into the container. Uploading an agent whose ID already exists lets you deploy it under a **custom ID/name** as an independent copy (or overwrite) — the same agent can then play on both teams.
 - **Manage agents** — the **Manage** action lists every agent; delete any one (container agents are removed from the container, local `.agent` files from disk) with a confirmation prompt.
 - **Start the sim container** from the panel if it isn't running (with a spinner while it boots).
@@ -33,6 +38,7 @@ A sidebar panel for **Booster Studio** that runs **3v3 robot soccer matches** be
 
 | Plugin version | Booster Studio | sim image (default) | Notes |
 |---|---|---|---|
+| 0.2.5 | **1.9.10** | auto-detected (any tag) | Match video recording (UI mode, cross-platform window capture to MP4); record/zip filenames include both teams |
 | 0.2.4 | **1.9.10** | auto-detected (any tag) | Fix: robots don't move after End→Start — leftover team `ros2 launch` parents now killed at End and before each match |
 | 0.2.3 | **1.9.10** | auto-detected (any tag) | Count works in visual mode, auto-end no longer kills the batch, retried start/end, marketplace install |
 | 0.2.2 | **1.9.10** | auto-detected (any tag) | Bot-freeze forensics logging + Diagnose button, mid-match delete guard, restart-Studio error hints |
@@ -49,6 +55,7 @@ A sidebar panel for **Booster Studio** that runs **3v3 robot soccer matches** be
 - **Booster Studio ≥ 1.9.10**.
 - **Docker** reachable from the host CLI (`docker` on PATH).
 - The **virtual-robot sim container** running (the extension can start it for you).
+- **`ffmpeg` on the host PATH** — only needed for match video recording (UI mode); otherwise optional.
 - Node.js 18+ only if you build from source.
 
 ---
@@ -111,6 +118,35 @@ Open Booster Studio Settings and search for `boosterMatch`:
 | `boosterMatch.matchLength` | `0` | Auto-end each match after this many seconds. `0` = disabled (run until the sim finishes or you click End). |
 | `boosterMatch.leadGoals` | `0` | Auto-end once one team leads by this many goals (either side). `0` = disabled. |
 | `boosterMatch.hostAgentRoots` | `[]` | Host dirs to scan for `.agent` files (one level into each root + root-level `.agent`). |
+| `boosterMatch.recordVideo` | `false` | Record each UI-mode match by capturing the Booster Studio window to an MP4 (next to the match zip). Needs `ffmpeg` on the host; the window must stay foreground. |
+
+### Configuring recording dependencies (Windows / Ubuntu / macOS)
+
+Match video recording captures the Booster Studio window via the host's `ffmpeg`, plus a small OS-specific window-listing helper. Install once:
+
+- **Windows** — `ffmpeg` only:
+  - `winget install Gyan.FFmpeg`, or download from <https://www.gyan.dev/ffmpeg/builds/>, unzip and add `bin` to PATH.
+- **Ubuntu / Debian** — `ffmpeg` + window tools:
+  - `sudo apt install ffmpeg wmctrl x11-utils`
+  - Recording uses X11 (`x11grab`); on a Wayland-only session, run Booster Studio under **XWayland**.
+- **macOS** — `ffmpeg`:
+  - `brew install ffmpeg`
+  - The first recording triggers a macOS prompt to grant Booster Studio **Accessibility** permission (System Settings → Privacy & Security → Accessibility); allow it and retry. The screen device index is assumed to be `1`; if you get the wrong/black screen, list devices with `ffmpeg -f avfoundation -list_devices true -i ""` (that index is hardcoded for now).
+
+Verify `ffmpeg` with `ffmpeg -version`. When you tick **Record video**, the panel checks for `ffmpeg` first; if it isn't found you get a prompt to install/configure it before recording.
+
+> All platforms capture the visible screen, so keep the Booster Studio window foreground & unobstructed while recording (a minimized/covered window records blank).
+
+### Verified recording setups
+
+The capture pipeline (ffmpeg window capture + the OS-specific window locator) is **verified working** on the setups below. On other systems it may need extra steps — see the **AI-first troubleshooting** section below.
+
+| OS | Desktop / display | Key dependencies | Notes |
+|---|---|---|---|
+| **Windows 10 / 11** | — | `ffmpeg` | Only `ffmpeg` on PATH is needed (uses `gdigrab`). |
+| **Ubuntu 24.04 LTS** | GNOME on **X11**, gdm (`DISPLAY=:1`) | `ffmpeg`, `wmctrl`, `x11-utils` | `sudo apt install ffmpeg wmctrl x11-utils`. Verified at 2560×1080; the Booster Studio window title contains "Booster Studio", which the locator greps for. The X display number is read from `$DISPLAY` at runtime — gdm sessions are commonly `:1`, **not** `:0`. |
+
+> The author's hardware is limited. If recording fails on your system (Wayland-native sessions, other distros, multi-monitor, remote/headless), paste the ffmpeg error to an AI along with [docs/booster-internals.md](./docs/booster-internals.md) — that is the supported path, not a fallback.
 
 ---
 

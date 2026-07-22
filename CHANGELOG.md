@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.5
+
+- **Match video recording (UI mode)** — enable `boosterMatch.recordVideo` and each **Start Match + UI** run records every match to an MP4 by capturing the Booster Studio window. The recording is "what you see" — the viewer's 3D scene, the score HUD and the robot skins — so no offline re-render is needed. Each match in a Count>1 batch gets its own MP4, saved next to the match zip with the same name.
+- **Cross-platform window capture** — Windows uses `gdigrab` (PowerShell resolves the window rect, clamped to the screen); Linux uses `x11grab` (`wmctrl` + `xdpyinfo`); macOS uses `avfoundation` (`osascript`) with a crop. Requires `ffmpeg` on the host PATH plus the OS-specific locator. The Studio window must stay foreground & unobstructed while recording (a minimized/covered window records blank); headless matches have no window and aren't recorded. See README → "Verified recording setups" for tested configs.
+- **File names include both teams** — auto-saved records are now `match-<timestamp>_<red>_vs_<blue>_<score>.zip` / `.mp4` (team names sanitized for the filesystem), so the file list alone shows who played.
+
 ## 0.2.4
 
 - **Fix: "robots don't move" after End → Start (leftover `ros2 launch` parents)** — `ros2 launch <pkg>` is the **parent** of `pyagent_x86`, so the existing `pkill pyagent_x86` only killed the child node and left the `ros2 launch` parent orphaned (its cgroup had already been `rm -rf`'d, so it ran on unmanaged). Those orphans kept holding the ROS2 node / package / topic names, so the next match's agents couldn't bind them and the robots stayed still. `/match/end` also does NOT destroy team sandboxes, so each End without a manual restart accumulated another pair of orphans. `endMatch()` and the start-of-match cleanup now kill leftover team-agent `ros2 launch` + `pyagent` processes (precisely excluding the `booster_agent_manager` daemon and the `com.boosterobotics.default` demo, matched in both dotted-path and underscored-package forms). End now leaves the container clean (just agent_manager + default) and the next Start binds cleanly.

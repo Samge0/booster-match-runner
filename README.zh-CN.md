@@ -6,6 +6,10 @@
 
 > 整个面板——每个标签、按钮、事件名——都支持**一键中英文切换**，语言选择会被记住。
 
+<img width="443" height="280" alt="image" src="https://github.com/user-attachments/assets/09916441-fae8-4597-aec7-6417ff50ddb0" />
+
+<img width="423" height="360" alt="image" src="https://github.com/user-attachments/assets/b4cc2a9d-15b2-4c15-b8e6-2c4bb4c6a1ae" />
+
 ---
 
 ## ✨ 主要功能
@@ -20,6 +24,7 @@
   - 每场结束的比赛自动归档到 `~/.booster-match-runner/matches/`（zip 内含：摘要 + 事件 + 运行日志）。
   - **Match records（比赛记录）**选择器：在文件管理器中定位，或**全部导出为 CSV**（Excel 友好，UTF-8 BOM）。
   - **Save log**：手动把当前比赛打包成 zip。
+- **视频录制（UI 模式）**：开启 `boosterMatch.recordVideo` 后，每场「Start Match + UI」比赛会把 Booster Studio 比赛可视化窗口录制成 MP4（所见即所得——含 viewer 画面、比分、机器人贴皮），保存在比赛记录 zip 旁，**文件名含两队名**。需要宿主机有 `ffmpeg`；录制时窗口须保持前台。
 - **上传 `.agent`** 包直接部署进容器。上传的 agent 若 ID 已存在，可选择用**自定义 ID/名称**部署为独立副本（或直接覆盖）——这样同一个 agent 可以同时作为红蓝双方对战。
 - **管理 agent**：**Manage** 操作列出全部 agent，可删除任意一个（容器内 agent 从容器移除，本地 `.agent` 文件从磁盘删除），删除前有二次确认。
 - **启动仿真容器**：容器没运行时可从面板一键启动（启动过程中显示转圈动画）。
@@ -33,6 +38,7 @@
 
 | 插件版本 | Booster Studio | 仿真镜像（默认） | 备注 |
 |---|---|---|---|
+| 0.2.5 | **1.9.10** | 自动探测（任意 tag） | 比赛视频录制（UI 模式，跨平台窗口录制为 MP4）；录像/zip 文件名含两队名 |
 | 0.2.4 | **1.9.10** | 自动探测（任意 tag） | 修复：End→Start 后机器人不动——End 与每场启动前清理残留的 team `ros2 launch` 父进程 |
 | 0.2.3 | **1.9.10** | 自动探测（任意 tag） | 可视化模式支持 Count、自动结束不再杀整个批次、start/end 重试、插件市场安装 |
 | 0.2.2 | **1.9.10** | 自动探测（任意 tag） | 机器人不动取证日志 + 诊断按钮、比赛中删除 agent 保护、错误提示重启 Studio |
@@ -49,6 +55,7 @@
 - **Booster Studio ≥ 1.9.10**。
 - **Docker** 可在宿主机命令行调用（`docker` 在 PATH 中）。
 - 正在运行的 **virtual-robot 仿真容器**（插件可以帮你启动）。
+- **宿主机 PATH 中有 `ffmpeg`**——仅在 UI 模式比赛视频录制时需要，其余情况可选。
 - 仅在源码编译时需要 Node.js 18+。
 
 ---
@@ -111,6 +118,35 @@ npx vsce package --no-git-tag-version --allow-missing-repository
 | `boosterMatch.matchLength` | `0` | 开赛后经过该秒数自动结束单场。`0` = 不启用（跑到仿真结束或手动点 End）。 |
 | `boosterMatch.leadGoals` | `0` | 任一方领先达到该球数即自动结束（双向）。`0` = 不启用。 |
 | `boosterMatch.hostAgentRoots` | `[]` | 宿主机目录，用于扫描 `.agent` 文件（深入一层工程目录 + 根目录下的 `.agent`）。 |
+| `boosterMatch.recordVideo` | `false` | 录制每场 UI 模式比赛为 MP4（捕获 Booster Studio 比赛可视化窗口，保存在比赛 zip 旁）。需要宿主机 `ffmpeg`；窗口须保持前台。 |
+
+### 配置录制依赖（Windows / Ubuntu / macOS）
+
+视频录制通过宿主机的 `ffmpeg` 捕获 Booster Studio 比赛可视化窗口，外加一个系统相关的小工具来定位窗口。各系统安装一次：
+
+- **Windows**——仅需 `ffmpeg`：
+  - `winget install Gyan.FFmpeg`，或从 <https://www.gyan.dev/ffmpeg/builds/> 下载、解压，把 `bin` 加入 PATH。
+- **Ubuntu / Debian**——`ffmpeg` + 窗口工具：
+  - `sudo apt install ffmpeg wmctrl x11-utils`
+  - 录制使用 X11（`x11grab`）；纯 Wayland 会话下需让 Booster Studio 跑在 **XWayland** 下。
+- **macOS**——`ffmpeg`：
+  - `brew install ffmpeg`
+  - 首次录制时 macOS 会弹窗要求授予 Booster Studio **辅助功能（Accessibility）** 权限（系统设置 → 隐私与安全性 → 辅助功能），允许后重试。屏幕设备索引目前固定为 `1`；若录到错误/黑屏，用 `ffmpeg -f avfoundation -list_devices true -i ""` 查看设备列表（该索引暂硬编码）。
+
+用 `ffmpeg -version` 验证。勾选 **Record video** 时面板会先检测 `ffmpeg`；若找不到会弹窗提示你安装/配置后再录制。
+
+> 三个平台都是录制屏幕可见区域，录制时请保持 Booster Studio 比赛可视化窗口前台、不被遮挡（最小化/被遮挡会录到空白或当前屏幕的其他内容）。
+
+### 已验证可录制的环境
+
+录制链路（ffmpeg 窗口捕获 + 系统相关的窗口定位工具）在以下环境**已验证可用**。其他系统可能需要额外处理——见下文「🤖 优先用 AI 解决问题」一节。
+
+| 系统 | 桌面 / 显示 | 关键依赖 | 备注 |
+|---|---|---|---|
+| **Windows 10 / 11** | — | `ffmpeg` | 只需 PATH 中有 `ffmpeg`（使用 `gdigrab`）。 |
+| **Ubuntu 24.04 LTS** | GNOME on **X11**，gdm（`DISPLAY=:1`） | `ffmpeg`、`wmctrl`、`x11-utils` | `sudo apt install ffmpeg wmctrl x11-utils`。在 2560×1080 下验证通过；Booster Studio 窗口标题含 "Booster Studio"（定位脚本据此 grep）。X 的 display 号在运行时从 `$DISPLAY` 读取——gdm 会话常为 `:1`，**不是** `:0`。 |
+
+> 作者手头设备有限。如果你的系统无法录制（Wayland 原生会话、其他发行版、多显示器、远程/无头环境等），请把 ffmpeg 报错连同 [docs/booster-internals.md](./docs/booster-internals.md) 一起发给 AI——推荐这么处理，效率会更高。
 
 ---
 
@@ -177,7 +213,7 @@ git push origin v0.1.0
 ## ⚠️ 免责声明
 
 - 本项目**主要用于学习与研究** Booster 机器人足球开发。
-- 代码由 **AI 辅助生成**；遇到兼容性问题或 bug 时，建议优先与 AI 协作迭代解决——这是预期的工作流，不是退路。
+- 代码由 **AI 辅助生成**；遇到兼容性问题或 bug 时，建议优先与 AI 协作迭代解决，效率会更高。
 - 本项目**与 Booster Robotics 无关、也未获其背书**，所有商标归 respective 所有者。
 - 风险自负；正式依赖比赛结果前请自行核对。
 
