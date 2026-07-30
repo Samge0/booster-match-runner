@@ -24,12 +24,13 @@
   - 每场结束的比赛自动归档到 `~/.booster-match-runner/matches/`（zip 内含：摘要 + 事件 + 运行日志）。
   - **Match records（比赛记录）**选择器：在文件管理器中定位，或**全部导出为 CSV**（Excel 友好，UTF-8 BOM）。
   - **Save log**：手动把当前比赛打包成 zip。
-- **视频录制（UI 模式）**：开启 `boosterMatch.recordVideo` 后，每场「Start Match + UI」比赛会把 Booster Studio 比赛可视化窗口录制成 MP4（所见即所得——含 viewer 画面、比分、机器人贴皮），保存在比赛记录 zip 旁，**文件名含两队名**。需要宿主机有 `ffmpeg`；录制时窗口须保持前台。
+- **视频录制（UI 模式）**：在面板勾选 **Record video** 后，每场「Start Match + UI」比赛会把 Booster Studio 比赛可视化窗口录制成 MP4（所见即所得——含 viewer 画面、比分、机器人贴皮），保存在比赛记录 zip 旁，**文件名含两队名**。需要宿主机有 `ffmpeg`；录制时窗口须保持前台。
 - **上传 `.agent`** 包直接部署进容器。上传的 agent 若 ID 已存在，可选择用**自定义 ID/名称**部署为独立副本（或直接覆盖）——这样同一个 agent 可以同时作为红蓝双方对战。
 - **管理 agent**：**Manage** 操作列出全部 agent，可删除任意一个（容器内 agent 从容器移除，本地 `.agent` 文件从磁盘删除），删除前有二次确认。
 - **启动仿真容器**：容器没运行时可从面板一键启动（启动过程中显示转圈动画）。
 - **可选自动结束**：在面板设置超时秒数和/或领先球数阈值；填 `0` 表示不启用，比赛仅在仿真判定结束时结束。
 - **抗重载**：插件能在 Booster Studio 窗口重载/重开后恢复——红蓝下拉自动恢复到当前比赛的两队，**End（结束）**按钮在比赛进行中保持可点击。
+- **死局自动重试**：比赛陷入「球卡死死循环」或「一方机器人异常被单方碾压（如 0-9）」时，会自动中止并用新 agent 重试，而不是归档一场无意义的记录；失败场次会保存到 `~/.booster-match-runner/matches-failure/` 供分析。阈值可通过 `ballStuckRestartCount` / `oneSidedRestartCount` 调整。
 - **诊断与取证**：**Diagnose** 按钮列出运行中的 `ros2 launch` 进程和堆积的 sandbox；开赛失败时，故障现场（`run.py` 日志尾、`/health`、进程列表）会自动保存到 `~/.booster-match-runner/match-start-failure.log`。正在比赛中的 agent 会被禁止删除。
 
 ---
@@ -38,6 +39,7 @@
 
 | 插件版本 | Booster Studio | 仿真镜像（默认） | 备注 |
 |---|---|---|---|
+| 0.2.6 | **1.9.10** | 自动探测（任意 tag） | 死局自动检测与重试（球卡死/单方碾压）、失败归档、cgroup.kill 进程清理、录像开关改为运行时状态、配置项国际化 |
 | 0.2.5 | **1.9.10** | 自动探测（任意 tag） | 比赛视频录制（UI 模式，跨平台窗口录制为 MP4）；录像/zip 文件名含两队名 |
 | 0.2.4 | **1.9.10** | 自动探测（任意 tag） | 修复：End→Start 后机器人不动——End 与每场启动前清理残留的 team `ros2 launch` 父进程 |
 | 0.2.3 | **1.9.10** | 自动探测（任意 tag） | 可视化模式支持 Count、自动结束不再杀整个批次、start/end 重试、插件市场安装 |
@@ -117,8 +119,11 @@ npx vsce package --no-git-tag-version --allow-missing-repository
 | `boosterMatch.defaultOpponent` | `com.booster.default3v3ai` | 默认蓝方 agent id。 |
 | `boosterMatch.matchLength` | `0` | 开赛后经过该秒数自动结束单场。`0` = 不启用（跑到仿真结束或手动点 End）。 |
 | `boosterMatch.leadGoals` | `0` | 任一方领先达到该球数即自动结束（双向）。`0` = 不启用。 |
+| `boosterMatch.ballStuckRestartCount` | `5` | 连续遇到此次数的「球卡死」（`global_game_stuck`，裁判系统信号）即中止并重试当前比赛。正常比赛通常 0–1 次；频繁卡球说明陷入死循环。`0` = 不启用。 |
+| `boosterMatch.oneSidedRestartCount` | `5` | 同一方连续进球达到此次数、且对方在此期间无任何事件即中止并重试——对方有主动进球/犯规则计数归零；被动裁判判罚（球门球/界外球/角球）不计。用于检测一方机器人异常被单方碾压（如 0-9）。`0` = 不启用。 |
 | `boosterMatch.hostAgentRoots` | `[]` | 宿主机目录，用于扫描 `.agent` 文件（深入一层工程目录 + 根目录下的 `.agent`）。 |
-| `boosterMatch.recordVideo` | `false` | 录制每场 UI 模式比赛为 MP4（捕获 Booster Studio 比赛可视化窗口，保存在比赛 zip 旁）。需要宿主机 `ffmpeg`；窗口须保持前台。 |
+
+> **Record video** 是面板上的勾选开关（不在此处配置）——UI 比赛前在面板勾选即可，跨会话记忆。录制依赖见下方「配置录制依赖」小节。
 
 ### 配置录制依赖（Windows / Ubuntu / macOS）
 

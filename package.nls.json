@@ -1,0 +1,11 @@
+{
+  "settings.matchLength": "Auto-end each match after this many seconds (0 = disabled; run until the sim finishes or you click End). Handy for capping headless batch runs.",
+  "settings.leadGoals": "Auto-end the match once one team leads by this many goals (either side). 0 = disabled. Example: `3` ends the match as soon as the score gap reaches 3.",
+  "settings.ballStuckRestartCount": "Abort and restart a match after this many consecutive `global_game_stuck` events (the SSL referee's own signal that the ball is jammed and no robot can free it). Normal matches have 0-1; frequent stuck events indicate a death-spiral. Set to 0 to disable.",
+  "settings.oneSidedRestartCount": "Abort and restart a match after this many consecutive goals by the same team without the opponent having ANY event (goal, foul, throw-in, etc.). Any event from the opponent resets the counter — it means their robots are still active. Detects one-sided blowouts where one team's robots are frozen/broken (e.g. 0-9). Set to 0 to disable.",
+  "settings.hostAgentRoots": "Host directories to scan for .agent files (one level into each root + .agent files directly in the root). Empty by default; configure as needed.",
+  "settings.defaultOpponent": "Default opponent agent ID",
+  "settings.gameControlPort": "Game control HTTP API port inside the container",
+  "settings.containerName": "Docker container name running the simulation. Optional: if left empty, the container is auto-detected by image name (see `simImage`). To find the name yourself, run:\n\n`docker ps -a --format \"{{.Names}}\\t{{.Image}}\"`",
+  "settings.simImage": "Optional image name (substring match) used to auto-detect the sim container. Leave empty to fall back to `virtual-robot/virtual-robot` (matches any version). To pin a specific version, set the full image:tag, e.g.\n\n`booster-robotics-registry.cn-beijing.cr.aliyuncs.com/virtual-robot/virtual-robot:0.6.5-beta`"
+}
