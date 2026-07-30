@@ -2,7 +2,7 @@
   "name": "booster-match-runner",
   "displayName": "Booster Match Runner",
   "description": "Unofficial community panel to run 3v3 soccer matches between Booster agents (requires Booster Studio + the virtual-robot sim container).",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "publisher": "samge",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -86,50 +86,62 @@
           "order": 1,
           "type": "number",
           "default": 0,
-          "description": "Auto-end each match after this many seconds (0 = disabled; run until the sim finishes or you click End). Handy for capping headless batch runs."
+          "markdownDescription": "%settings.matchLength%"
         },
         "boosterMatch.leadGoals": {
           "order": 2,
           "type": "number",
           "default": 0,
-          "markdownDescription": "Auto-end the match once one team leads by this many goals (either side). 0 = disabled. Example: `3` ends the match as soon as the score gap reaches 3."
+          "markdownDescription": "%settings.leadGoals%"
         },
-        "boosterMatch.hostAgentRoots": {
-          "order": 3,
-          "type": "array",
-          "items": { "type": "string" },
-          "default": [],
-          "description": "Host directories to scan for .agent files (one level into each root + .agent files directly in the root). Empty by default; configure as needed."
-        },
-        "boosterMatch.defaultOpponent": {
-          "order": 4,
-          "type": "string",
-          "default": "com.booster.default3v3ai",
-          "description": "Default opponent agent ID"
-        },
-        "boosterMatch.gameControlPort": {
+        "boosterMatch.ballStuckRestartCount": {
           "order": 5,
           "type": "number",
+          "default": 5,
+          "minimum": 0,
+          "markdownDescription": "%settings.ballStuckRestartCount%"
+        },
+        "boosterMatch.oneSidedRestartCount": {
+          "order": 6,
+          "type": "number",
+          "default": 5,
+          "minimum": 0,
+          "markdownDescription": "%settings.oneSidedRestartCount%"
+        },
+
+        "boosterMatch.hostAgentRoots": {
+          "order": 20,
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "%settings.hostAgentRoots%"
+        },
+        
+        "boosterMatch.defaultOpponent": {
+          "order": 100,
+          "type": "string",
+          "default": "com.booster.default3v3ai",
+          "markdownDescription": "%settings.defaultOpponent%"
+        },
+        "boosterMatch.gameControlPort": {
+          "order": 101,
+          "type": "number",
           "default": 38383,
-          "description": "Game control HTTP API port inside the container"
+          "markdownDescription": "%settings.gameControlPort%"
         },
         "boosterMatch.containerName": {
-          "order": 6,
+          "order": 102,
           "type": "string",
           "default": "",
-          "markdownDescription": "Docker container name running the simulation. Optional: if left empty, the container is auto-detected by image name (see `simImage`). To find the name yourself, run:\n\n`docker ps -a --format \"{{.Names}}\\t{{.Image}}\"`"
+          "markdownDescription": "%settings.containerName%"
         },
         "boosterMatch.simImage": {
-          "order": 7,
+          "order": 103,
           "type": "string",
           "default": "",
-          "markdownDescription": "Optional image name (substring match) used to auto-detect the sim container. Leave empty to fall back to `virtual-robot/virtual-robot` (matches any version). To pin a specific version, set the full image:tag, e.g.\n\n`booster-robotics-registry.cn-beijing.cr.aliyuncs.com/virtual-robot/virtual-robot:0.6.5-beta`"
-        },
-        "boosterMatch.recordVideo": {
-          "order": 8,
-          "type": "boolean",
-          "default": false,
-          "markdownDescription": "Record each UI-mode match by capturing the Booster Studio window (includes the viewer, score HUD and robot skins exactly as shown). An MP4 is saved next to the match zip. The window must stay foreground while recording; requires `ffmpeg` on the host PATH."
+          "markdownDescription": "%settings.simImage%"
         }
       }
     }

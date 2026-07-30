@@ -1,0 +1,11 @@
+{
+  "settings.matchLength": "每场比赛达到此时长（秒）后自动结束（0 = 禁用；让仿真自然结束或手动点击结束）。适用于限制无头批量比赛的时长。",
+  "settings.leadGoals": "当一方领先达到此进球数时自动结束比赛（任意一方）。0 = 禁用。例如：设为 `3` 表示比分差距达到 3 时立即结束。",
+  "settings.ballStuckRestartCount": "连续遇到多少次球卡住（`global_game_stuck`，裁判系统判定球被卡死且无法解脱）时自动结束当前比赛并重新开始。正常比赛通常只有 0-1 次卡球；频繁卡球说明比赛陷入死循环，重开可以节省时间。设为 0 表示禁用。",
+  "settings.oneSidedRestartCount": "同一方连续进球达到此次数，且对方在此期间没有任何事件（进球、犯规、界外球等），时自动结束当前比赛并重新开始。对方只要有任意事件则计数归零——说明对方机器人仍在活动。用于检测一方机器人异常（无法活动）导致另一方连续单方进球的情形（如 0-9）。设为 0 表示禁用。",
+  "settings.hostAgentRoots": "用于扫描 .agent 文件的主机目录（扫描每个根目录下一层 + 根目录下的 .agent 文件）。默认为空，按需配置。",
+  "settings.defaultOpponent": "默认对手 Agent ID",
+  "settings.gameControlPort": "容器内 Game Control HTTP API 的端口号",
+  "settings.containerName": "运行仿真的 Docker 容器名称。可选：留空则按镜像名自动检测（见 `simImage`）。如需手动指定，可运行：\n\n`docker ps -a --format \"{{.Names}}\\t{{.Image}}\"`",
+  "settings.simImage": "可选的镜像名称（子串匹配），用于自动检测仿真容器。留空则回退到 `virtual-robot/virtual-robot`（匹配任意版本）。如需锁定特定版本，填写完整 image:tag，例如：\n\n`booster-robotics-registry.cn-beijing.cr.aliyuncs.com/virtual-robot/virtual-robot:0.6.5-beta`"
+}

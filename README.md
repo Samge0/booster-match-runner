@@ -24,12 +24,13 @@ A sidebar panel for **Booster Studio** that runs **3v3 robot soccer matches** be
   - Every finished match is archived to `~/.booster-match-runner/matches/` (zip = summary + events + run log).
   - **Match records** picker: reveal a record in the file manager, or **export all to CSV** (Excel-friendly, UTF-8 BOM).
   - **Save log** — manually pack the current match into a zip.
-- **Video recording (UI mode)** — enable `boosterMatch.recordVideo` to capture each visual match as an MP4 of the Booster Studio window (the viewer, score and robot skins exactly as shown); saved next to the match record, with both team names in the filename. Needs `ffmpeg` on the host; the window must stay foreground.
+- **Video recording (UI mode)** — tick **Record video** on the panel to capture each visual match as an MP4 of the Booster Studio window (the viewer, score and robot skins exactly as shown); saved next to the match record, with both team names in the filename. Needs `ffmpeg` on the host; the window must stay foreground.
 - **Upload `.agent`** packages straight into the container. Uploading an agent whose ID already exists lets you deploy it under a **custom ID/name** as an independent copy (or overwrite) — the same agent can then play on both teams.
 - **Manage agents** — the **Manage** action lists every agent; delete any one (container agents are removed from the container, local `.agent` files from disk) with a confirmation prompt.
 - **Start the sim container** from the panel if it isn't running (with a spinner while it boots).
 - **Optional auto-end** — set a max duration (s) and/or a lead-goal margin on the panel; `0` disables it, so the match ends only when the sim reports it finished.
 - **Resilient** — survives a Booster Studio window reload/reopen: the Red/Blue pickers restore the two teams of the in-progress match and the **End** button stays clickable.
+- **Dead-match auto-retry** — a match stuck in a ball-jam death-spiral or a one-sided blowout (one team's robots frozen, e.g. 0-9) is aborted and retried with fresh agents instead of archiving a worthless record; the failed take is saved to `~/.booster-match-runner/matches-failure/` for inspection. Tunable via `ballStuckRestartCount` / `oneSidedRestartCount`.
 - **Diagnostics & forensics** — a **Diagnose** button lists running `ros2 launch` processes and stale sandboxes; if a match start fails, the failure scene (`run.py` log tail, `/health`, live processes) is auto-saved to `~/.booster-match-runner/match-start-failure.log`. Deleting an agent that's currently playing in a running match is blocked.
 
 ---
@@ -38,6 +39,7 @@ A sidebar panel for **Booster Studio** that runs **3v3 robot soccer matches** be
 
 | Plugin version | Booster Studio | sim image (default) | Notes |
 |---|---|---|---|
+| 0.2.6 | **1.9.10** | auto-detected (any tag) | Auto-detect & retry dead matches (ball-jam / one-sided), failure archive, cgroup.kill teardown, recording toggle as runtime state, localized settings |
 | 0.2.5 | **1.9.10** | auto-detected (any tag) | Match video recording (UI mode, cross-platform window capture to MP4); record/zip filenames include both teams |
 | 0.2.4 | **1.9.10** | auto-detected (any tag) | Fix: robots don't move after End→Start — leftover team `ros2 launch` parents now killed at End and before each match |
 | 0.2.3 | **1.9.10** | auto-detected (any tag) | Count works in visual mode, auto-end no longer kills the batch, retried start/end, marketplace install |
@@ -117,8 +119,11 @@ Open Booster Studio Settings and search for `boosterMatch`:
 | `boosterMatch.defaultOpponent` | `com.booster.default3v3ai` | Default Blue-team agent id. |
 | `boosterMatch.matchLength` | `0` | Auto-end each match after this many seconds. `0` = disabled (run until the sim finishes or you click End). |
 | `boosterMatch.leadGoals` | `0` | Auto-end once one team leads by this many goals (either side). `0` = disabled. |
+| `boosterMatch.ballStuckRestartCount` | `5` | Abort & retry a match after this many consecutive `global_game_stuck` events (the referee's ball-jam signal). Normal matches have 0–1; frequent stuck events indicate a death-spiral. `0` disables. |
+| `boosterMatch.oneSidedRestartCount` | `5` | Abort & retry after this many consecutive goals by the same team with zero opponent events — an active opponent goal/foul resets it; passive referee awards (goal_kick / throw_in / corner_kick) are ignored. Detects one-sided blowouts where one team is frozen (e.g. 0-9). `0` disables. |
 | `boosterMatch.hostAgentRoots` | `[]` | Host dirs to scan for `.agent` files (one level into each root + root-level `.agent`). |
-| `boosterMatch.recordVideo` | `false` | Record each UI-mode match by capturing the Booster Studio window to an MP4 (next to the match zip). Needs `ffmpeg` on the host; the window must stay foreground. |
+
+> **Record video** is a panel toggle (not a setting here) — tick it on the panel before a UI match; it's remembered across sessions. See [Configuring recording dependencies](#configuring-recording-dependencies-windows--ubuntu--macos) below.
 
 ### Configuring recording dependencies (Windows / Ubuntu / macOS)
 

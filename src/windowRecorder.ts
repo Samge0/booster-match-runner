@@ -83,6 +83,15 @@ end tell`;
 
     /** Start recording to outMp4. Returns true if ffmpeg came up & stayed up. */
     async start(outMp4: string): Promise<boolean> {
+        // Kill any lingering ffmpeg from a previous recording that wasn't stopped
+        // cleanly. gdigrab/x11grab are EXCLUSIVE — a zombie blocks all new ones.
+        try {
+            if (process.platform === "win32") {
+                cp.execSync("taskkill /F /IM ffmpeg.exe 2>nul", { windowsHide: true, timeout: 3000, stdio: "ignore" });
+            } else {
+                cp.execSync("pkill -f 'ffmpeg' 2>/dev/null", { timeout: 3000, stdio: "ignore" });
+            }
+        } catch { /* no ffmpeg running — expected */ }
         const rect = await this.resolveRect();
         if (!rect) { return false; }
         const parts = rect.split(/\s+/);
@@ -107,8 +116,15 @@ end tell`;
         this.child = null;
         if (!c) { return false; }
         try { c.stdin?.write("q"); } catch { /* ignore */ }
+        // libx264 flush of a 20-min recording can take several seconds; 8s is
+        // generous enough to write the moov atom without SIGKILL corrupting it.
         return new Promise((resolve) => {
-            const t = setTimeout(() => { try { c.kill("SIGKILL"); } catch { /* ignore */ } resolve(false); }, 4000);
+            const t = setTimeout(() => {
+                // Force-kill so the process doesn't leak into the next recording
+                // (gdigrab/x11grab are exclusive — a zombie blocks all future starts).
+                try { c.kill("SIGKILL"); } catch { /* ignore */ }
+                resolve(false);
+            }, 8000);
             c.on("exit", () => { clearTimeout(t); resolve(true); });
         });
     }
