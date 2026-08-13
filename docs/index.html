@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Booster Match Runner - 3v3 机器人足球比赛运行器</title>
+    <link rel="icon" type="image/png" href="icon.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&family=Noto+Serif+SC:wght@400;500;600&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Noto Sans SC', 'Inter', 'Manrope', 'sans-serif'],
+                        serif: ['Noto Serif SC', 'serif'],
+                    },
+                    colors: {
+                        brand: {
+                            400: '#1a1a1a',
+                            500: '#000000',
+                            600: '#0a0a0a',
+                        },
+                        neutral: {
+                            50: '#f9fafb',
+                            100: '#f3f4f6',
+                            200: '#e5e7eb',
+                            800: '#1f2937',
+                            900: '#111827',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Noto Sans SC', 'Inter', 'Manrope', sans-serif;
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(0, 0, 0, 0.08);
+        }
+        .gradient-icon {
+            background: linear-gradient(135deg, #000000 0%, #1a1a1a 50%, #2a2a2a 100%);
+        }
+        .hero-gradient {
+            background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #000000 0%, #1a1a1a 100%);
+            transition: all 0.2s ease;
+        }
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+        }
+        details[open] summary ~ * {
+            animation: sweep 0.3s ease-in-out;
+        }
+        @keyframes sweep {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-white text-neutral-900 antialiased">
+    <!-- Top Navigation -->
+    <nav class="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-lg border-b border-neutral-200">
+        <div class="max-w-6xl mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <img src="icon.png" alt="Booster Match Runner" class="w-9 h-9">
+                    <span class="font-semibold text-lg">Booster Match Runner</span>
+                </div>
+                <div class="hidden md:flex items-center gap-8">
+                    <a href="#features" class="text-sm text-neutral-600 hover:text-brand-500 transition">功能特性</a>
+                    <a href="#how-it-works" class="text-sm text-neutral-600 hover:text-brand-500 transition">工作原理</a>
+                    <a href="#installation" class="text-sm text-neutral-600 hover:text-brand-500 transition">安装</a>
+                    <a href="https://github.com" target="_blank" class="text-sm text-neutral-600 hover:text-brand-500 transition">GitHub</a>
+                </div>
+                <a href="#installation" class="btn-primary text-white px-5 py-2.5 rounded-lg text-sm font-medium">
+                    立即安装
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero-gradient pt-32 pb-20 px-6">
+        <div class="max-w-6xl mx-auto">
+            <div class="max-w-3xl">
+                <h1 class="text-5xl md:text-6xl font-bold leading-tight mb-6 text-neutral-900">
+                    Booster Match Runner
+                </h1>
+                <p class="text-xl text-neutral-600 mb-8 max-w-2xl leading-relaxed">
+                    Booster Studio 的侧边面板，用于在两个智能体之间运行 3v3 机器人足球比赛（红方 vs 蓝方），支持实时比分、关键事件时间轴、无头运行和自动比赛记录归档。
+                </p>
+                <div class="flex flex-wrap gap-4 mb-8">
+                    <a href="#installation" class="btn-primary text-white px-6 py-3 rounded-lg font-medium inline-flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                        </svg>
+                        安装扩展
+                    </a>
+                    <a href="https://github.com" target="_blank" class="glass-card px-6 py-3 rounded-lg font-medium inline-flex items-center gap-2 hover:bg-neutral-50 transition">
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                        </svg>
+                        GitHub 仓库
+                    </a>
+                </div>
+                <div class="flex items-center gap-6 text-sm text-neutral-500">
+                    <span>🌐 英文 · 简体中文</span>
+                    <span class="w-1 h-1 bg-neutral-300 rounded-full"></span>
+                    <span>⚡ 一键切换语言</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="py-20 px-6 bg-neutral-50">
+        <div class="max-w-6xl mx-auto">
+            <div class="text-center mb-16">
+                <h2 class="text-3xl md:text-4xl font-bold mb-4">核心功能</h2>
+                <p class="text-neutral-600 max-w-2xl mx-auto">
+                    全面的比赛管理工具，从智能体选择到记录归档，一切尽在掌握
+                </p>
+            </div>
+
+            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Feature 1 -->
+                <div class="glass-card rounded-xl p-6 hover:shadow-lg transition-shadow">
+                    <div class="gradient-icon w-12 h-12 rounded-lg flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold mb-2">双智能体对战</h3>
+                    <p class="text-neutral-600 text-sm">从运行的模拟容器和/或本地 .agent 文件中选择两个智能体（红方 vs 蓝方）</p>
+                </div>
+
+                <!-- Feature 2 -->
+                <div class="glass-card rounded-xl p-6 hover:shadow-lg transition-shadow">
+                    <div class="gradient-icon w-12 h-12 rounded-lg flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold mb-2">两种运行模式</h3>
+                    <p class="text-neutral-600 text-sm">启动可视化比赛或无头模式运行，灵活适应不同需求</p>
+                </div>
+
+                <!-- Feature 3 -->
+                <div class="glass-card rounded-xl p-6 hover:shadow-lg transition-shadow">
+                    <div class="gradient-icon w-12 h-12 rounded-lg flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold mb-2">实时比分追踪</h3>
+                    <p class="text-neutral-600 text-sm">每 3 秒轮询一次比分和比赛时间，自动检测比赛结束</p>
+                </div>
+
+                <!-- Feature 4 -->
+                <div class="glass-card rounded-xl p-6 hover:shadow-lg transition-shadow">
+                    <div class="gradient-icon w-12 h-12 rounded-lg flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold mb-2">关键事件时间轴</h3>
+                    <p class="text-neutral-600 text-sm">进球、犯规、定位球等事件从 events.jsonl 增量读取</p>
+                </div>
+
+                <!-- Feature 5 -->
+                <div class="glass-card rounded-xl p-6 hover:shadow-lg transition-shadow">
+                    <div class="gradient-icon w-12 h-12 rounded-lg flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold mb-2">自动保存与导出</h3>
+                    <p class="text-neutral-600 text-sm">每场比赛自动归档，支持导出为 CSV 格式，方便数据分析</p>
+                </div>
+
+                <!-- Feature 6 -->
+                <div class="glass-card rounded-xl p-6 hover:shadow-lg transition-shadow">
+                    <div class="gradient-icon w-12 h-12 rounded-lg flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold mb-2">视频录制</h3>
+                    <p class="text-neutral-600 text-sm">UI 模式下可将每场比赛录制为 MP4，精确保存视觉呈现</p>
+                </div>
+
+                <!-- Feature 7 -->
+                <div class="glass-card rounded-xl p-6 hover:shadow-lg transition-shadow">
+                    <div class="gradient-icon w-12 h-12 rounded-lg flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold mb-2">智能体上传</h3>
+                    <p class="text-neutral-600 text-sm">直接上传 .agent 包到容器，支持自定义 ID/名称部署</p>
+                </div>
+
+                <!-- Feature 8 -->
+                <div class="glass-card rounded-xl p-6 hover:shadow-lg transition-shadow">
+                    <div class="gradient-icon w-12 h-12 rounded-lg flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold mb-2">智能体管理</h3>
+                    <p class="text-neutral-600 text-sm">列出并删除所有智能体，包含确认提示防止误操作</p>
+                </div>
+
+                <!-- Feature 9 -->
+                <div class="glass-card rounded-xl p-6 hover:shadow-lg transition-shadow">
+                    <div class="gradient-icon w-12 h-12 rounded-lg flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold mb-2">弹性恢复</h3>
+                    <p class="text-neutral-600 text-sm">在 Booster Studio 窗口重新加载/重新打开后自动恢复比赛状态</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works Section -->
+    <section id="how-it-works" class="py-20 px-6 bg-white">
+        <div class="max-w-6xl mx-auto">
+            <div class="text-center mb-16">
+                <h2 class="text-3xl md:text-4xl font-bold mb-4">工作流程</h2>
+                <p class="text-neutral-600 max-w-2xl mx-auto">
+                    简单四步，开始你的机器人足球比赛之旅
+                </p>
+            </div>
+
+            <div class="grid md:grid-cols-4 gap-8">
+                <div class="text-center">
+                    <div class="gradient-icon w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-white text-2xl font-bold">
+                        1
+                    </div>
+                    <h3 class="font-semibold mb-2">选择智能体</h3>
+                    <p class="text-sm text-neutral-600">从容器或本地文件选择红蓝双方智能体</p>
+                </div>
+                <div class="text-center">
+                    <div class="gradient-icon w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-white text-2xl font-bold">
+                        2
+                    </div>
+                    <h3 class="font-semibold mb-2">配置比赛</h3>
+                    <p class="text-sm text-neutral-600">设置运行模式、时长限制和视频录制选项</p>
+                </div>
+                <div class="text-center">
+                    <div class="gradient-icon w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-white text-2xl font-bold">
+                        3
+                    </div>
+                    <h3 class="font-semibold mb-2">开始比赛</h3>
+                    <p class="text-sm text-neutral-600">启动可视化窗口或无头模式运行比赛</p>
+                </div>
+                <div class="text-center">
+                    <div class="gradient-icon w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-white text-2xl font-bold">
+                        4
+                    </div>
+                    <h3 class="font-semibold mb-2">查看结果</h3>
+                    <p class="text-sm text-neutral-600">实时监控比赛进度，结束后自动归档记录</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ Section -->
+    <section id="faq" class="py-20 px-6 bg-neutral-50">
+        <div class="max-w-4xl mx-auto">
+            <div class="text-center mb-16">
+                <h2 class="text-3xl md:text-4xl font-bold mb-4">常见问题</h2>
+                <p class="text-neutral-600">
+                    快速了解常见问题的解答
+                </p>
+            </div>
+
+            <div class="space-y-4">
+                <details class="glass-card rounded-lg group">
+                    <summary class="p-6 cursor-pointer font-medium flex items-center justify-between">
+                        系统要求是什么？
+                        <svg class="w-5 h-5 text-neutral-400 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </summary>
+                    <div class="px-6 pb-6 text-neutral-600">
+                        <ul class="list-disc list-inside space-y-2">
+                            <li>Booster Studio ≥ 1.9.10</li>
+                            <li>Docker 可在主机 CLI 访问（docker 在 PATH 中）</li>
+                            <li>virtual-robot sim 容器正在运行</li>
+                            <li>主机 PATH 中需要 ffmpeg（仅用于视频录制）</li>
+                        </ul>
+                    </div>
+                </details>
+
+                <details class="glass-card rounded-lg group">
+                    <summary class="p-6 cursor-pointer font-medium flex items-center justify-between">
+                        如何首次设置？
+                        <svg class="w-5 h-5 text-neutral-400 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </summary>
+                    <div class="px-6 pb-6 text-neutral-600">
+                        <ol class="list-decimal list-inside space-y-2">
+                            <li>在 Booster Studio 左侧活动栏打开 ROBOTS → 选择 Virtual robot 创建/启动 Docker 容器</li>
+                            <li>点击右上角的 Run 按钮。Booster Studio 会将完整的 3v3 比赛栈部署到容器中</li>
+                            <li>一旦 football3v3_runner 存在且端口 38383 开始监听，扩展就准备好了</li>
+                        </ol>
+                    </div>
+                </details>
+
+                <details class="glass-card rounded-lg group">
+                    <summary class="p-6 cursor-pointer font-medium flex items-center justify-between">
+                        如何安装扩展？
+                        <svg class="w-5 h-5 text-neutral-400 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </summary>
+                    <div class="px-6 pb-6 text-neutral-600">
+                        <p class="mb-4">有三种安装方式：</p>
+                        <ul class="space-y-2">
+                            <li><strong>扩展市场（推荐）：</strong>在 Booster Studio 的扩展视图中搜索"Booster Match Runner"并点击安装</li>
+                            <li><strong>从发布版本安装：</strong>下载 .vsix 文件，通过命令面板或 CLI 命令安装</li>
+                            <li><strong>从源代码构建：</strong>运行 npm install、npm run compile 并使用 vsce 打包</li>
+                        </ul>
+                    </div>
+                </details>
+
+                <details class="glass-card rounded-lg group">
+                    <summary class="p-6 cursor-pointer font-medium flex items-center justify-between">
+                        比赛记录保存在哪里？
+                        <svg class="w-5 h-5 text-neutral-400 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </summary>
+                    <div class="px-6 pb-6 text-neutral-600">
+                        <p>所有比赛记录自动归档到 ~/.booster-match-runner/matches/ 目录，每个比赛包含摘要、事件日志和运行日志。失败的比赛会保存在 ~/.booster-match-runner/matches-failure/ 中。</p>
+                    </div>
+                </details>
+            </div>
+        </div>
+    </section>
+
+    <!-- Installation Section -->
+    <section id="installation" class="py-20 px-6 bg-white">
+        <div class="max-w-4xl mx-auto">
+            <div class="text-center mb-16">
+                <h2 class="text-3xl md:text-4xl font-bold mb-4">安装指南</h2>
+                <p class="text-neutral-600 max-w-2xl mx-auto">
+                    选择最适合你的安装方式
+                </p>
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-6">
+                <div class="glass-card rounded-xl p-6">
+                    <div class="gradient-icon w-12 h-12 rounded-lg flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/>
+                        </svg>
+                    </div>
+                    <h3 class="font-semibold mb-2">扩展市场</h3>
+                    <p class="text-sm text-neutral-600 mb-4">最简单的方式，直接搜索安装</p>
+                    <a href="#" class="text-sm font-medium text-brand-500 hover:text-brand-600">前往市场 →</a>
+                </div>
+
+                <div class="glass-card rounded-xl p-6">
+                    <div class="gradient-icon w-12 h-12 rounded-lg flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                        </svg>
+                    </div>
+                    <h3 class="font-semibold mb-2">发布版本</h3>
+                    <p class="text-sm text-neutral-600 mb-4">下载 .vsix 文件手动安装</p>
+                    <a href="https://github.com" target="_blank" class="text-sm font-medium text-brand-500 hover:text-brand-600">下载文件 →</a>
+                </div>
+
+                <div class="glass-card rounded-xl p-6">
+                    <div class="gradient-icon w-12 h-12 rounded-lg flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+                        </svg>
+                    </div>
+                    <h3 class="font-semibold mb-2">源代码</h3>
+                    <p class="text-sm text-neutral-600 mb-4">从源代码自行构建</p>
+                    <a href="https://github.com" target="_blank" class="text-sm font-medium text-brand-500 hover:text-brand-600">查看代码 →</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-neutral-900 text-white py-12 px-6">
+        <div class="max-w-6xl mx-auto">
+            <div class="flex flex-col md:flex-row items-center justify-between gap-6">
+                <div class="flex items-center gap-3">
+                    <img src="icon.png" alt="Booster Match Runner" class="w-8 h-8">
+                    <span class="font-semibold">Booster Match Runner</span>
+                </div>
+                <div class="flex items-center gap-6">
+                    <a href="https://github.com" target="_blank" class="text-neutral-400 hover:text-white transition">
+                        <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                        </svg>
+                    </a>
+                    <a href="https://github.com" target="_blank" class="text-neutral-400 hover:text-white transition">GitHub</a>
+                </div>
+                <div class="text-sm text-neutral-400">
+                    MIT License © 2024
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>

@@ -2,6 +2,9 @@
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [Booster Internals (给 AI 看的上下文)](./docs/booster-internals.md)
 
+
+> 🌐 **[在线宣传页](https://samge0.github.io/booster-match-runner/)** — 可视化了解功能特性与工作流程
+
 A sidebar panel for **Booster Studio** that runs **3v3 robot soccer matches** between two agents (Red vs Blue), with live score, key-event timeline, headless runs, and automatic match-record archiving.
 
 > The whole panel — every label, button and event name — can be switched between **English and Chinese** with one click. The language choice is remembered.
